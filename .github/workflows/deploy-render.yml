@@ -1,0 +1,33 @@
+name: Deploy to Render
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: npm install
+
+      - name: Check server syntax
+        run: npm run smoke
+
+  deploy:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    if: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}
+    steps:
+      - name: Trigger Render deploy hook
+        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"

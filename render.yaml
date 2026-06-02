@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: blood-pressure-tracker
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DB_PATH
+        value: /data/health_tracker.db
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: APP_USERNAME
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+    disk:
+      name: tracker-data
+      mountPath: /data
+      sizeGB: 1

@@ -3,3 +3,7 @@ health_tracker.db
 health_tracker.db-*
 uploads/
 *.log
+node_modules/
+npm-debug.log*
+.env.*
+!.env.example

@@ -9,6 +9,7 @@ let logsCache = [];
 let editingLogId = null;
 let portionEntries = [];
 let lastReminderMinute = "";
+let sessionReady = false;
 
 const bpCategories = [
   {
@@ -132,6 +133,12 @@ const dateInput = document.querySelector("#date");
 const timeInput = document.querySelector("#time");
 const todayLabel = document.querySelector("#todayLabel");
 const todayStatus = document.querySelector("#todayStatus");
+const loginOverlay = document.querySelector("#loginOverlay");
+const loginForm = document.querySelector("#loginForm");
+const loginUsername = document.querySelector("#loginUsername");
+const loginPassword = document.querySelector("#loginPassword");
+const loginStatus = document.querySelector("#loginStatus");
+const logoutBtn = document.querySelector("#logoutBtn");
 const bpMetric = document.querySelector("#bpMetric");
 const bpMetricStatus = document.querySelector("#bpMetricStatus");
 const pulseMetric = document.querySelector("#pulseMetric");
@@ -205,15 +212,67 @@ function loadLogs() {
   return logsCache;
 }
 
+async function appFetch(url, options = {}) {
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    showLogin();
+    throw new Error("Login required.");
+  }
+  return response;
+}
+
+function showLogin() {
+  loginOverlay.classList.remove("hidden");
+  logoutBtn.classList.add("hidden");
+  sessionReady = false;
+}
+
+function hideLogin() {
+  loginOverlay.classList.add("hidden");
+  logoutBtn.classList.remove("hidden");
+  sessionReady = true;
+}
+
+async function checkSession() {
+  const response = await fetch("/api/session");
+  const session = await response.json();
+  if (session.authenticated) hideLogin();
+  else showLogin();
+  return session;
+}
+
+async function login() {
+  const response = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: loginUsername.value.trim(), password: loginPassword.value }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || "Login failed.");
+  }
+  loginPassword.value = "";
+  hideLogin();
+  await refreshLogs();
+  render();
+}
+
+async function logout() {
+  await fetch("/api/logout", { method: "POST" });
+  logsCache = [];
+  render();
+  showLogin();
+}
+
 async function refreshLogs() {
-  const response = await fetch(LOGS_API_URL);
+  const response = await appFetch(LOGS_API_URL);
   if (!response.ok) throw new Error("Could not load logs from SQLite.");
   logsCache = await response.json();
   return logsCache;
 }
 
 async function saveLog(log) {
-  const response = await fetch(LOGS_API_URL, {
+  const response = await appFetch(LOGS_API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(log),
@@ -226,19 +285,19 @@ async function saveLog(log) {
 }
 
 async function deleteLog(id) {
-  const response = await fetch(`${LOGS_API_URL}/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const response = await appFetch(`${LOGS_API_URL}/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!response.ok) throw new Error("Could not delete log.");
   await refreshLogs();
 }
 
 async function clearLogs() {
-  const response = await fetch(LOGS_API_URL, { method: "DELETE" });
+  const response = await appFetch(LOGS_API_URL, { method: "DELETE" });
   if (!response.ok) throw new Error("Could not clear logs.");
   await refreshLogs();
 }
 
 async function replaceLogs(logs) {
-  const response = await fetch(LOGS_API_URL, {
+  const response = await appFetch(LOGS_API_URL, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(logs),
@@ -906,7 +965,7 @@ async function runWholeLogAnalysis() {
 
   deepAnalysis.innerHTML = `<span class="analysis-pill">Analyzing logs...</span>`;
   try {
-    const response = await fetch(AI_LOGS_BACKEND_URL, {
+    const response = await appFetch(AI_LOGS_BACKEND_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ logs }),
@@ -997,7 +1056,7 @@ async function analyzeFoodPhoto() {
   photoAiBadge.textContent = "Analyzing";
   try {
     const imageDataUrl = await readFileAsDataUrl(file);
-    const response = await fetch(AI_FOOD_BACKEND_URL, {
+    const response = await appFetch(AI_FOOD_BACKEND_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ imageDataUrl }),
@@ -1147,7 +1206,7 @@ async function sendChatQuestion(question) {
   chatStatusBadge.textContent = "Thinking";
 
   try {
-    const response = await fetch(AI_CHAT_BACKEND_URL, {
+    const response = await appFetch(AI_CHAT_BACKEND_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1224,6 +1283,10 @@ exportBtn.addEventListener("click", () => {
 });
 
 databaseBackupBtn.addEventListener("click", () => {
+  if (!sessionReady) {
+    showLogin();
+    return;
+  }
   window.location.href = "/api/database-backup";
 });
 
@@ -1278,6 +1341,21 @@ quickQuestions.forEach((button) => {
   });
 });
 
+loginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  loginStatus.textContent = "Signing in...";
+  try {
+    await login();
+    loginStatus.textContent = "Signed in.";
+  } catch (error) {
+    loginStatus.textContent = error.message;
+  }
+});
+
+logoutBtn.addEventListener("click", async () => {
+  await logout();
+});
+
 foodPhotoInput.addEventListener("change", () => {
   renderPhotoPreview(foodPhotoInput.files[0]);
 });
@@ -1302,9 +1380,16 @@ renderPortions();
 loadReminders();
 setInterval(checkReminders, 30000);
 
-refreshLogs()
-  .then(render)
+checkSession()
+  .then((session) => {
+    if (!session.authenticated) {
+      render();
+      return null;
+    }
+    return refreshLogs().then(render);
+  })
   .catch((error) => {
     console.error(error);
+    showLogin();
     render();
   });

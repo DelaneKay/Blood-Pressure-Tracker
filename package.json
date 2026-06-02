@@ -1,0 +1,14 @@
+{
+  "name": "blood-pressure-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Private blood pressure, low-carb, food photo, and AI health log tracker.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "smoke": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

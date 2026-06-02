@@ -1,14 +1,26 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { DatabaseSync } = require("node:sqlite");
 
-const PORT = Number(process.env.PORT || 5178);
 const ROOT = __dirname;
-const DB_PATH = path.join(ROOT, "health_tracker.db");
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-
 loadEnv(path.join(ROOT, ".env"));
+
+const PORT = Number(process.env.PORT || 5178);
+const HOST = process.env.HOST || "127.0.0.1";
+const DB_PATH = process.env.DB_PATH || path.join(ROOT, "health_tracker.db");
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const APP_USERNAME = process.env.APP_USERNAME || "admin";
+const APP_PASSWORD = process.env.APP_PASSWORD || "";
+const SESSION_SECRET = process.env.SESSION_SECRET || "";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const sessions = new Map();
+
+if (IS_PRODUCTION && (!APP_PASSWORD || !SESSION_SECRET)) {
+  throw new Error("Production requires APP_PASSWORD and SESSION_SECRET environment variables.");
+}
+
 const db = initDatabase();
 
 const MIME_TYPES = {
@@ -25,6 +37,31 @@ const MIME_TYPES = {
 
 const server = http.createServer(async (request, response) => {
   try {
+    if (request.method === "GET" && request.url === "/api/health") {
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === "GET" && request.url === "/api/session") {
+      sendJson(response, 200, { authenticated: isAuthenticated(request), authRequired: isAuthRequired() });
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/api/login") {
+      await handleLogin(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/api/logout") {
+      handleLogout(request, response);
+      return;
+    }
+
+    if (request.url?.startsWith("/api/") && !isAuthenticated(request)) {
+      sendJson(response, 401, { message: "Login required." });
+      return;
+    }
+
     if (request.url?.startsWith("/api/logs")) {
       await handleLogsApi(request, response);
       return;
@@ -61,11 +98,12 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Blood Pressure Health Tracker running at http://127.0.0.1:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`Blood Pressure Health Tracker running at http://${HOST}:${PORT}`);
 });
 
 function initDatabase() {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   const database = new DatabaseSync(DB_PATH);
   database.exec(`
     CREATE TABLE IF NOT EXISTS logs (
@@ -76,6 +114,87 @@ function initDatabase() {
     );
   `);
   return database;
+}
+
+async function handleLogin(request, response) {
+  if (!isAuthRequired()) {
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  const body = await readJsonBody(request);
+  const username = String(body.username || "");
+  const password = String(body.password || "");
+  if (username !== APP_USERNAME || password !== APP_PASSWORD) {
+    sendJson(response, 401, { message: "Invalid username or password." });
+    return;
+  }
+
+  const sessionId = crypto.randomBytes(32).toString("hex");
+  const signature = signSession(sessionId);
+  sessions.set(sessionId, { username, createdAt: Date.now() });
+  response.writeHead(200, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Set-Cookie": buildSessionCookie(`${sessionId}.${signature}`),
+  });
+  response.end(JSON.stringify({ ok: true }));
+}
+
+function handleLogout(request, response) {
+  const session = getSessionCookie(request);
+  if (session?.id) sessions.delete(session.id);
+  response.writeHead(200, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Set-Cookie": buildSessionCookie("", true),
+  });
+  response.end(JSON.stringify({ ok: true }));
+}
+
+function isAuthRequired() {
+  return Boolean(APP_PASSWORD);
+}
+
+function isAuthenticated(request) {
+  if (!isAuthRequired()) return true;
+  const session = getSessionCookie(request);
+  if (!session) return false;
+  if (signSession(session.id) !== session.signature) return false;
+  return sessions.has(session.id);
+}
+
+function getSessionCookie(request) {
+  const cookies = parseCookies(request.headers.cookie || "");
+  const value = cookies.bp_session;
+  if (!value || !value.includes(".")) return null;
+  const [id, signature] = value.split(".");
+  return { id, signature };
+}
+
+function signSession(sessionId) {
+  return crypto.createHmac("sha256", SESSION_SECRET || "local-dev-session-secret").update(sessionId).digest("hex");
+}
+
+function buildSessionCookie(value, clear = false) {
+  const parts = [
+    `bp_session=${value}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    clear ? "Max-Age=0" : "Max-Age=604800",
+  ];
+  if (IS_PRODUCTION) parts.push("Secure");
+  return parts.join("; ");
+}
+
+function parseCookies(cookieHeader) {
+  return cookieHeader.split(";").reduce((cookies, item) => {
+    const index = item.indexOf("=");
+    if (index === -1) return cookies;
+    const key = item.slice(0, index).trim();
+    const value = item.slice(index + 1).trim();
+    cookies[key] = value;
+    return cookies;
+  }, {});
 }
 
 async function handleLogsApi(request, response) {

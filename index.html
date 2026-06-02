@@ -7,15 +7,35 @@
     <link rel="stylesheet" href="./styles.css?v=20260602-4" />
   </head>
   <body>
+    <section id="loginOverlay" class="login-overlay hidden">
+      <form id="loginForm" class="login-card">
+        <p class="eyebrow">Private tracker</p>
+        <h2>Sign in</h2>
+        <label>
+          Username
+          <input id="loginUsername" type="text" autocomplete="username" value="admin" required />
+        </label>
+        <label>
+          Password
+          <input id="loginPassword" type="password" autocomplete="current-password" required />
+        </label>
+        <button class="primary-button" type="submit">Sign in</button>
+        <p id="loginStatus" class="mini-copy">Use the username and password configured on the server.</p>
+      </form>
+    </section>
+
     <div class="app-shell">
       <header class="topbar">
         <div>
           <p class="eyebrow">Daily health log</p>
           <h1>Blood Pressure Health Tracker</h1>
         </div>
-        <div class="today-card">
-          <span id="todayLabel"></span>
-          <strong id="todayStatus">No reading yet</strong>
+        <div class="top-actions">
+          <div class="today-card">
+            <span id="todayLabel"></span>
+            <strong id="todayStatus">No reading yet</strong>
+          </div>
+          <button id="logoutBtn" class="ghost-button hidden" type="button">Logout</button>
         </div>
       </header>
 
