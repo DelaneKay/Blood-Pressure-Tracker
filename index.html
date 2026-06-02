@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blood Pressure Health Tracker</title>
+    <link rel="stylesheet" href="./styles.css?v=20260602-4" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Daily health log</p>
+          <h1>Blood Pressure Health Tracker</h1>
+        </div>
+        <div class="today-card">
+          <span id="todayLabel"></span>
+          <strong id="todayStatus">No reading yet</strong>
+        </div>
+      </header>
+
+      <nav class="tabbar" aria-label="App sections">
+        <button class="tab-button active" type="button" data-tab="insightsTab">Insights</button>
+        <button class="tab-button" type="button" data-tab="logTab">Daily Log</button>
+        <button class="tab-button" type="button" data-tab="historyTab">History</button>
+        <button class="tab-button" type="button" data-tab="reportsTab">Reports</button>
+        <button class="tab-button" type="button" data-tab="chatTab">Chat</button>
+        <button class="tab-button" type="button" data-tab="referenceTab">Reference</button>
+      </nav>
+
+      <main>
+        <section id="insightsTab" class="tab-panel active">
+          <div id="alertBox" class="alert-box hidden"></div>
+
+          <div class="metric-grid">
+            <div class="metric-card">
+              <span>Latest BP</span>
+              <strong id="bpMetric">--/--</strong>
+              <small id="bpMetricStatus">No reading yet</small>
+            </div>
+            <div class="metric-card">
+              <span>Pulse</span>
+              <strong id="pulseMetric">--</strong>
+              <small>BPM</small>
+            </div>
+            <div class="metric-card">
+              <span>Weight</span>
+              <strong id="weightMetric">--</strong>
+              <small id="weightMetricTrend">Trend starts after 2 logs</small>
+            </div>
+            <div class="metric-card">
+              <span>Targets</span>
+              <strong id="targetMetric">0/6</strong>
+              <small>Daily habits met</small>
+            </div>
+          </div>
+
+          <section class="dashboard insights-home">
+            <div class="panel chart-panel wide-panel">
+              <div class="section-title">
+                <h2>Blood Pressure Trend</h2>
+                <div class="legend">
+                  <span><i class="sys"></i>Systolic</span>
+                  <span><i class="dia"></i>Diastolic</span>
+                  <span><i class="weight"></i>Weight</span>
+                </div>
+              </div>
+              <canvas id="trendChart" width="1000" height="360" aria-label="Blood pressure and weight trend chart"></canvas>
+            </div>
+
+            <div class="insight-stack">
+              <div class="panel status-panel">
+                <div class="section-title">
+                  <h2>Reading Insight</h2>
+                  <span id="categoryBadge" class="badge">Waiting</span>
+                </div>
+                <p id="readingSummary" class="summary-text">Add your blood pressure reading to get the daily status and next steps.</p>
+                <ul id="recommendations" class="recommendation-list"></ul>
+              </div>
+
+              <div class="panel">
+                <div class="section-title">
+                  <h2>Today's Targets</h2>
+                  <span id="targetScore" class="badge neutral">0/6</span>
+                </div>
+                <div id="targetList" class="target-list"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="insight-lower">
+            <div class="panel">
+              <div class="section-title">
+                <h2>Food Limits</h2>
+                <span id="foodScoreBadge" class="badge neutral">Waiting</span>
+              </div>
+              <p id="nutritionSummary" class="summary-text">Save a food log to estimate potassium, magnesium, net carbs, fiber ratio, and food quality.</p>
+              <div id="nutritionList" class="nutrition-list"></div>
+            </div>
+
+            <div class="panel">
+              <div class="section-title">
+                <h2>AI Coach</h2>
+                <button id="analyzeAllBtn" class="ghost-button" type="button">Analyze all logs</button>
+              </div>
+              <p id="coachText" class="summary-text">Your coach will combine today's blood pressure, medication, food, exercise, weight, and nutrient notes after you save a log.</p>
+              <div id="deepAnalysis" class="deep-analysis"></div>
+            </div>
+          </section>
+        </section>
+
+        <section id="logTab" class="tab-panel">
+          <div class="panel log-panel">
+          <div class="section-title">
+            <h2>Today's Log</h2>
+            <button id="resetTodayBtn" class="ghost-button" type="button">Clear form</button>
+          </div>
+
+          <form id="healthForm" class="health-form">
+            <div class="grid two">
+              <label>
+                Date
+                <input id="date" name="date" type="date" required />
+              </label>
+              <label>
+                Time (SAST)
+                <input id="time" name="time" type="time" required />
+              </label>
+            </div>
+
+            <div class="grid two">
+              <label>
+                Weight (kg)
+                <input id="weight" name="weight" type="number" min="20" max="300" step="0.1" placeholder="e.g. 92.5" />
+              </label>
+              <div class="time-note">
+                Logs are saved with Africa/Johannesburg time.
+              </div>
+            </div>
+
+            <div class="reading-grid">
+              <label>
+                Systolic
+                <input id="systolic" name="systolic" type="number" min="60" max="260" required placeholder="Top number" />
+              </label>
+              <label>
+                Diastolic
+                <input id="diastolic" name="diastolic" type="number" min="40" max="160" required placeholder="Bottom number" />
+              </label>
+              <label>
+                Pulse
+                <input id="pulse" name="pulse" type="number" min="30" max="220" required placeholder="BPM" />
+              </label>
+            </div>
+
+            <fieldset>
+              <legend>Medication taken</legend>
+              <label class="check-row">
+                <input id="atenolol" name="atenolol" type="checkbox" checked />
+                Atenolol 100 / Kiara - 1 tablet
+              </label>
+              <label class="check-row">
+                <input id="adco" name="adco" type="checkbox" checked />
+                Adco-Retic diuretic - 1/2 tablet
+              </label>
+            </fieldset>
+
+            <div class="grid two">
+              <label>
+                Potassium estimate (mg)
+                <input id="potassium" name="potassium" type="number" min="0" max="10000" step="50" placeholder="Target 4700" />
+              </label>
+              <label>
+                Magnesium estimate (mg)
+                <input id="magnesium" name="magnesium" type="number" min="0" max="2000" step="25" placeholder="Target 800" />
+              </label>
+            </div>
+
+            <label>
+              Food eaten today
+              <textarea id="food" name="food" rows="4" placeholder="e.g. eggs, avocado, spinach, chicken, hibiscus tea"></textarea>
+            </label>
+
+            <div class="portion-builder">
+              <div class="section-title compact-title">
+                <h3>Food portions</h3>
+                <span class="badge neutral">Serving estimate</span>
+              </div>
+              <div class="portion-grid">
+                <label>
+                  Food
+                  <select id="portionFood"></select>
+                </label>
+                <label>
+                  Servings
+                  <input id="portionServings" type="number" min="0.25" max="20" step="0.25" value="1" />
+                </label>
+                <button id="addPortionBtn" class="ghost-button" type="button">Add food</button>
+              </div>
+              <div id="portionList" class="portion-list"></div>
+            </div>
+
+            <div class="photo-analyzer">
+              <div class="section-title compact-title">
+                <h3>Food photo</h3>
+                <span id="photoAiBadge" class="badge neutral">AI-ready</span>
+              </div>
+              <div class="food-photo-grid">
+                <label class="photo-picker">
+                  Add meal picture
+                  <input id="foodPhoto" name="foodPhoto" type="file" accept="image/*" />
+                </label>
+                <div id="foodPhotoPreview" class="photo-preview">No photo selected</div>
+              </div>
+              <div class="photo-actions">
+                <button id="analyzePhotoBtn" class="ghost-button" type="button">Analyze photo</button>
+                <button id="useIdentifiedFoodsBtn" class="ghost-button" type="button">Use confirmed foods</button>
+              </div>
+              <p id="photoAnalysisStatus" class="mini-copy">Upload a food photo, then confirm the foods the AI identifies before saving.</p>
+              <label>
+                Confirmed foods from photo
+                <input id="confirmedFoods" name="confirmedFoods" type="text" placeholder="e.g. avocado, eggs, spinach" />
+              </label>
+              <div id="identifiedFoods" class="identified-foods"></div>
+            </div>
+
+            <div class="grid two">
+              <label>
+                Exercise completed
+                <select id="exerciseDone" name="exerciseDone">
+                  <option value="none">Not yet</option>
+                  <option value="cycling">Cycling</option>
+                  <option value="resistance">Resistance training</option>
+                  <option value="isometric">Isometric grip / wall sit</option>
+                  <option value="yoga">Yoga / breathing</option>
+                  <option value="mixed">Mixed session</option>
+                </select>
+              </label>
+              <label>
+                Exercise minutes
+                <input id="exerciseMinutes" name="exerciseMinutes" type="number" min="0" max="240" step="5" placeholder="e.g. 30" />
+              </label>
+            </div>
+
+            <label>
+              Notes
+              <textarea id="notes" name="notes" rows="3" placeholder="Sleep, stress, symptoms, salt, unusual events"></textarea>
+            </label>
+
+            <div class="action-row">
+              <button id="saveLogBtn" class="primary-button" type="submit">Save daily log</button>
+              <button id="cancelEditBtn" class="ghost-button hidden" type="button">Cancel edit</button>
+            </div>
+          </form>
+          </div>
+        </section>
+
+        <section id="historyTab" class="tab-panel">
+          <div class="panel history-panel">
+          <div class="section-title">
+            <h2>History</h2>
+            <div class="action-row">
+              <button id="exportBtn" class="ghost-button" type="button">Export JSON</button>
+              <button id="databaseBackupBtn" class="ghost-button" type="button">Download DB</button>
+              <label class="ghost-button import-button">
+                Import JSON
+                <input id="importJsonInput" type="file" accept="application/json" />
+              </label>
+              <button id="clearLogsBtn" class="ghost-button danger-button" type="button">Clear all logs</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th>BP</th>
+                  <th>Pulse</th>
+                  <th>Weight</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="historyBody"></tbody>
+            </table>
+          </div>
+          </div>
+        </section>
+
+        <section id="reportsTab" class="tab-panel">
+          <div class="report-grid">
+            <div class="panel">
+              <div class="section-title">
+                <h2>Weekly Report</h2>
+                <span id="weeklyReportBadge" class="badge neutral">7 days</span>
+              </div>
+              <div id="weeklyReport" class="report-list"></div>
+            </div>
+
+            <div class="panel">
+              <div class="section-title">
+                <h2>Monthly Report</h2>
+                <span id="monthlyReportBadge" class="badge neutral">30 days</span>
+              </div>
+              <div id="monthlyReport" class="report-list"></div>
+            </div>
+
+            <div class="panel">
+              <div class="section-title">
+                <h2>Reminders</h2>
+                <span id="reminderBadge" class="badge neutral">Local</span>
+              </div>
+              <div class="reminder-grid">
+                <label>
+                  Morning BP
+                  <input id="morningReminder" type="time" value="07:00" />
+                </label>
+                <label>
+                  Evening BP
+                  <input id="eveningReminder" type="time" value="19:00" />
+                </label>
+                <label>
+                  Medication
+                  <input id="medicineReminder" type="time" value="08:00" />
+                </label>
+              </div>
+              <div class="action-row">
+                <button id="saveRemindersBtn" class="ghost-button" type="button">Save reminders</button>
+                <button id="requestNotificationsBtn" class="ghost-button" type="button">Enable notifications</button>
+              </div>
+              <p id="reminderStatus" class="mini-copy">Reminders are checked while this app is open.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="chatTab" class="tab-panel">
+          <div class="chat-layout">
+            <div class="panel chat-panel">
+              <div class="section-title">
+                <h2>AI Health Chat</h2>
+                <span id="chatStatusBadge" class="badge neutral">Gemini</span>
+              </div>
+              <div id="chatMessages" class="chat-messages" aria-live="polite">
+                <div class="chat-message assistant">
+                  <strong>AI Coach</strong>
+                  <p>Ask about your readings, food logs, potassium, magnesium, low-carb meals, cycling, stress, sleep, or what to discuss with your clinician.</p>
+                </div>
+              </div>
+              <form id="chatForm" class="chat-form">
+                <label>
+                  Ask a question
+                  <textarea id="chatQuestion" rows="3" placeholder="e.g. Based on my logs, what should I focus on this week?"></textarea>
+                </label>
+                <button id="sendChatBtn" class="primary-button" type="submit">Send</button>
+              </form>
+            </div>
+
+            <div class="panel">
+              <div class="section-title">
+                <h2>Quick Questions</h2>
+                <span class="badge neutral">Context-aware</span>
+              </div>
+              <div class="quick-questions">
+                <button class="ghost-button quick-question" type="button">Based on my logs, what is the biggest thing to improve?</button>
+                <button class="ghost-button quick-question" type="button">Are my foods helping my potassium and low-carb targets?</button>
+                <button class="ghost-button quick-question" type="button">What should I ask my doctor about my readings?</button>
+                <button class="ghost-button quick-question" type="button">Give me a cycling and breathing plan for today.</button>
+              </div>
+              <p class="mini-copy">The chat uses your saved logs and your low-carb/BP notes. It is coaching support, not medical diagnosis.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="referenceTab" class="tab-panel">
+          <div class="panel reference-panel">
+            <div class="section-title">
+              <h2>Nutrition & Lifestyle Reference</h2>
+              <span class="badge neutral">Personal notes + safety guardrails</span>
+            </div>
+            <div class="reference-grid">
+              <div>
+                <h3>Blood pressure support</h3>
+                <p>Low carb meals, low sodium, steady weight loss if needed, sleep, stress control, cycling, resistance training, isometric work, yoga, slow breathing, and consistent medicine logging.</p>
+              </div>
+              <div>
+                <h3>Nutrient targets</h3>
+                <p>Potassium target: 4,700mg from food when appropriate. Magnesium target: 800mg from magnesium glycinate per your notes. Vitamin D, zinc, iodine, vitamin C, B1, fish/cod liver oil, garlic extract, L-arginine, celery, hibiscus, beetroot, cacao, and vitamin E are tracked as notes.</p>
+              </div>
+              <div>
+                <h3>Food scoring</h3>
+                <p>Helpful: avocado, eggs, meat, salad, spinach, swiss chard, beet tops, celery, hibiscus tea, beetroot, cacao, fish, low-carb vegetables. Caution: sugar, bread, rice, pasta, potatoes, starch, sweet drinks, high-salt processed foods.</p>
+              </div>
+              <div>
+                <h3>Daily limit calculation</h3>
+                <p>The app estimates food totals by matching logged foods to a serving database. It compares estimated potassium, magnesium, net carbs, glycemic quality, and carb-to-fiber ratio against your daily limits, then combines those estimates with any manual nutrient numbers you enter.</p>
+              </div>
+              <div>
+                <h3>Safety</h3>
+                <p>Do not stop prescribed medicine because of app feedback. Ask your clinician before high-dose supplements or potassium products, especially with kidney disease or medication changes.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js?v=20260602-4"></script>
+  </body>
+</html>
