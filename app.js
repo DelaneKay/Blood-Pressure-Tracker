@@ -358,31 +358,76 @@ function classifyBloodPressure(sys, dia) {
   return bpCategories.find((category) => category.test(sys, dia)) || bpCategories.at(-1);
 }
 
+function toPositiveNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function hasBloodPressure(log) {
+  return Number.isFinite(Number(log?.systolic)) && Number.isFinite(Number(log?.diastolic)) && Number(log.systolic) > 0 && Number(log.diastolic) > 0;
+}
+
+function hasAnyLogContent(log) {
+  return Boolean(
+    hasBloodPressure(log) ||
+      Number(log.systolic) > 0 ||
+      Number(log.diastolic) > 0 ||
+      Number(log.pulse) > 0 ||
+      Number(log.weight) > 0 ||
+      Number(log.manualPotassium) > 0 ||
+      Number(log.manualMagnesium) > 0 ||
+      Number(log.estimatedNutrition?.potassium) > 0 ||
+      Number(log.estimatedNutrition?.magnesium) > 0 ||
+      Number(log.estimatedNutrition?.netCarbs) > 0 ||
+      log.food ||
+      log.notes ||
+      log.atenolol ||
+      log.adco ||
+      Number(log.exerciseMinutes) > 0 ||
+      log.exerciseDone !== "none" ||
+      log.foodPhotoName ||
+      log.confirmedFoods
+  );
+}
+
+function formatBloodPressure(log) {
+  if (hasBloodPressure(log)) return `${log.systolic}/${log.diastolic}`;
+  if (Number(log?.systolic) > 0 || Number(log?.diastolic) > 0) return `${log?.systolic || "--"}/${log?.diastolic || "--"}`;
+  return "--/--";
+}
+
+function getBloodPressureCategory(log) {
+  return hasBloodPressure(log) ? classifyBloodPressure(Number(log.systolic), Number(log.diastolic)) : null;
+}
+
 function getFormData() {
   const data = new FormData(form);
+  const currentSast = getSastParts();
+  const date = data.get("date") || currentSast.date;
+  const time = data.get("time") || currentSast.time;
   const confirmedFoods = data.get("confirmedFoods")?.trim() || "";
   const portionFoodText = portionEntries
     .map((entry) => `${formatNumber(Number(entry.servings) || 1)} ${entry.key}`)
     .join(", ");
   const food = [data.get("food")?.trim(), confirmedFoods, portionFoodText].filter(Boolean).join(", ");
   const estimatedNutrition = estimateFoodNutrition(food, portionEntries);
-  const sys = Number(data.get("systolic"));
-  const dia = Number(data.get("diastolic"));
-  const pulse = Number(data.get("pulse"));
-  const weight = Number(data.get("weight"));
+  const sys = toPositiveNumber(data.get("systolic"));
+  const dia = toPositiveNumber(data.get("diastolic"));
+  const pulse = toPositiveNumber(data.get("pulse"));
+  const weight = toPositiveNumber(data.get("weight"));
   const manualPotassium = Number(data.get("potassium")) || 0;
   const manualMagnesium = Number(data.get("magnesium")) || 0;
-  const category = classifyBloodPressure(sys, dia);
+  const category = sys && dia ? classifyBloodPressure(sys, dia) : null;
 
-  return {
-    id: editingLogId || `${data.get("date")}-${data.get("time")}-${Date.now()}`,
-    date: data.get("date"),
-    time: data.get("time"),
-    timestampSast: buildSastTimestamp(data.get("date"), data.get("time")),
+  const log = {
+    id: editingLogId || `${date}-${time}-${Date.now()}`,
+    date,
+    time,
+    timestampSast: buildSastTimestamp(date, time),
     systolic: sys,
     diastolic: dia,
     pulse,
-    weight: Number.isFinite(weight) && weight > 0 ? weight : null,
+    weight,
     atenolol: data.get("atenolol") === "on",
     adco: data.get("adco") === "on",
     potassium: Math.max(manualPotassium, estimatedNutrition.potassium),
@@ -398,9 +443,13 @@ function getFormData() {
     exerciseDone: data.get("exerciseDone"),
     exerciseMinutes: Number(data.get("exerciseMinutes")) || 0,
     notes: data.get("notes")?.trim() || "",
-    categoryKey: category.key,
-    categoryLabel: category.label,
+    categoryKey: category?.key || "notLogged",
+    categoryLabel: category?.label || "Not logged",
   };
+  if (!hasAnyLogContent(log)) {
+    throw new Error("Add at least one item to save: meal, BP, pulse, weight, medication, exercise, nutrients, or notes.");
+  }
+  return log;
 }
 
 function foodScore(food) {
@@ -556,10 +605,12 @@ function getRecommendations(log, logs) {
   if (!log) return [];
 
   const tips = [];
-  const category = classifyBloodPressure(log.systolic, log.diastolic);
+  const category = getBloodPressureCategory(log);
   const food = foodScore(log.food);
 
-  if (category.key === "crisis") {
+  if (!category) {
+    tips.push("Blood pressure was not logged for this entry. Meal, weight, exercise, and nutrient patterns will still be tracked.");
+  } else if (category.key === "crisis") {
     tips.push("If you have chest pain, shortness of breath, weakness, vision changes, confusion, severe headache, or other concerning symptoms, seek emergency care now. If no symptoms, recheck after resting and contact your clinician urgently.");
   } else if (category.key === "stage2") {
     tips.push("Rest for 5 minutes, repeat the reading, log both results, and contact your clinician if this stays high or is unusual for you.");
@@ -671,18 +722,20 @@ function updateInsights(log, logs) {
     return;
   }
 
-  const category = classifyBloodPressure(log.systolic, log.diastolic);
-  categoryBadge.textContent = category.label;
-  categoryBadge.className = `badge ${category.key}`;
-  todayStatus.textContent = `${log.systolic}/${log.diastolic} - ${category.label}`;
-  bpMetric.textContent = `${log.systolic}/${log.diastolic}`;
-  bpMetricStatus.textContent = category.label;
-  pulseMetric.textContent = log.pulse;
+  const category = getBloodPressureCategory(log);
+  categoryBadge.textContent = category?.label || "BP not logged";
+  categoryBadge.className = `badge ${category?.key || "neutral"}`;
+  todayStatus.textContent = category ? `${formatBloodPressure(log)} - ${category.label}` : "BP not logged";
+  bpMetric.textContent = formatBloodPressure(log);
+  bpMetricStatus.textContent = category?.label || "Add reading when available";
+  pulseMetric.textContent = log.pulse || "--";
   weightMetric.textContent = log.weight ? `${log.weight}kg` : "--";
   weightMetricTrend.textContent = getWeightTrendText(log, logs);
-  readingSummary.textContent = `${category.summary} Pulse is ${log.pulse} bpm. This app uses home-tracking guidance and does not diagnose or change medication.`;
+  readingSummary.textContent = category
+    ? `${category.summary} ${log.pulse ? `Pulse is ${log.pulse} bpm. ` : ""}This app uses home-tracking guidance and does not diagnose or change medication.`
+    : "This log does not include a blood pressure reading. Food, nutrients, weight, exercise, and notes are still saved for trend analysis.";
 
-  if (category.key === "crisis") {
+  if (category?.key === "crisis") {
     alertBox.textContent = "Crisis-range reading: rest and recheck. If you have severe symptoms, seek emergency care now. Contact your clinician urgently if the reading remains very high.";
     alertBox.classList.remove("hidden");
   } else {
@@ -881,13 +934,14 @@ function formatNumber(value) {
 function buildCoachMessage(log, logs, category, targets, tips) {
   const missed = targets.filter((target) => !target.met).map((target) => target.label);
   const sevenDay = logs
+    .filter(hasBloodPressure)
     .filter((entry) => entry.date <= log.date)
     .sort((a, b) => logSortValue(b).localeCompare(logSortValue(a)))
     .slice(0, 7);
-  const avgSys = average(sevenDay.map((entry) => entry.systolic));
-  const avgDia = average(sevenDay.map((entry) => entry.diastolic));
+  const avgSys = average(sevenDay.map((entry) => Number(entry.systolic)));
+  const avgDia = average(sevenDay.map((entry) => Number(entry.diastolic)));
 
-  let message = `Coach view: today is ${category.label}. `;
+  let message = category ? `Coach view: today is ${category.label}. ` : "Coach view: BP was not logged in this entry. ";
   if (sevenDay.length >= 2) {
     message += `Your recent average is ${Math.round(avgSys)}/${Math.round(avgDia)} over ${sevenDay.length} logged day(s). `;
   }
@@ -914,10 +968,10 @@ function renderHistory(logs) {
         <tr>
           <td>${escapeHtml(formatDate(log.date))}</td>
           <td>${escapeHtml(formatTime(log))}</td>
-          <td>${log.systolic}/${log.diastolic}</td>
-          <td>${log.pulse}</td>
+          <td>${formatBloodPressure(log)}</td>
+          <td>${log.pulse || "-"}</td>
           <td>${log.weight ? `${log.weight}kg` : "-"}</td>
-          <td>${escapeHtml(log.categoryLabel)}</td>
+          <td>${escapeHtml(getBloodPressureCategory(log)?.label || "Not logged")}</td>
           <td>
             <button class="ghost-button edit-btn" type="button" data-id="${escapeHtml(log.id)}">Edit</button>
             <button class="delete-btn" type="button" data-id="${escapeHtml(log.id)}">Delete</button>
@@ -940,10 +994,12 @@ function buildReport(logs, days) {
   const recent = logs.filter((log) => log.date >= cutoffDate);
   if (!recent.length) return `<p class="mini-copy">No logs in the last ${days} days.</p>`;
 
-  const avgSys = Math.round(average(recent.map((log) => log.systolic)));
-  const avgDia = Math.round(average(recent.map((log) => log.diastolic)));
-  const avgPulse = Math.round(average(recent.map((log) => log.pulse)));
-  const high = recent.filter((log) => ["stage1", "stage2", "crisis"].includes(classifyBloodPressure(log.systolic, log.diastolic).key)).length;
+  const bpLogs = recent.filter(hasBloodPressure);
+  const pulseLogs = recent.filter((log) => Number(log.pulse) > 0);
+  const avgSys = bpLogs.length ? Math.round(average(bpLogs.map((log) => Number(log.systolic)))) : null;
+  const avgDia = bpLogs.length ? Math.round(average(bpLogs.map((log) => Number(log.diastolic)))) : null;
+  const avgPulse = pulseLogs.length ? Math.round(average(pulseLogs.map((log) => Number(log.pulse)))) : null;
+  const high = bpLogs.filter((log) => ["stage1", "stage2", "crisis"].includes(getBloodPressureCategory(log).key)).length;
   const meds = recent.filter((log) => log.atenolol && log.adco).length;
   const exercise = Math.round(average(recent.map((log) => Number(log.exerciseMinutes) || 0)));
   const caution = recent.filter((log) => foodScore(log.food || "").caution.length).length;
@@ -955,9 +1011,10 @@ function buildReport(logs, days) {
 
   return [
     ["Logs", `${recent.length}/${days} days`],
-    ["Average BP", `${avgSys}/${avgDia}`],
-    ["Average pulse", `${avgPulse} bpm`],
-    ["High readings", `${high}/${recent.length}`],
+    ["BP readings", `${bpLogs.length}/${recent.length} logs`],
+    ["Average BP", bpLogs.length ? `${avgSys}/${avgDia}` : "No BP readings"],
+    ["Average pulse", pulseLogs.length ? `${avgPulse} bpm` : "No pulse logs"],
+    ["High readings", `${high}/${bpLogs.length || 0}`],
     ["Medicine logged", `${meds}/${recent.length}`],
     ["Exercise average", `${exercise} min/day`],
     ["Caution food days", `${caution}/${recent.length}`],
@@ -976,7 +1033,7 @@ function drawChart(logs) {
   ctx.fillStyle = "#fbfcfa";
   ctx.fillRect(0, 0, width, height);
 
-  const chartLogs = [...logs].sort((a, b) => logSortValue(a).localeCompare(logSortValue(b))).slice(-30);
+  const chartLogs = [...logs].filter((log) => hasBloodPressure(log) || log.weight).sort((a, b) => logSortValue(a).localeCompare(logSortValue(b))).slice(-30);
   if (!chartLogs.length) {
     ctx.fillStyle = "#647067";
     ctx.font = "22px Arial";
@@ -987,9 +1044,10 @@ function drawChart(logs) {
   const pad = { left: 58, right: 30, top: 28, bottom: 48 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
-  const bpValues = chartLogs.flatMap((log) => [log.systolic, log.diastolic]);
-  const minY = Math.min(50, Math.floor(Math.min(...bpValues) / 10) * 10);
-  const maxY = Math.max(190, Math.ceil(Math.max(...bpValues) / 10) * 10);
+  const bpLogs = chartLogs.filter(hasBloodPressure);
+  const bpValues = bpLogs.flatMap((log) => [Number(log.systolic), Number(log.diastolic)]);
+  const minY = bpValues.length ? Math.min(50, Math.floor(Math.min(...bpValues) / 10) * 10) : 50;
+  const maxY = bpValues.length ? Math.max(190, Math.ceil(Math.max(...bpValues) / 10) * 10) : 190;
 
   drawGrid(ctx, width, height, pad, minY, maxY);
   drawSeries(ctx, chartLogs, "systolic", "#bd3c37", pad, plotW, plotH, minY, maxY);
@@ -1025,16 +1083,20 @@ function drawSeries(ctx, logs, field, color, pad, plotW, plotH, minY, maxY) {
   ctx.fillStyle = color;
   ctx.lineWidth = 3;
   ctx.beginPath();
+  let hasPoint = false;
 
   logs.forEach((log, index) => {
-    const point = pointFor(index, logs.length, log[field], pad, plotW, plotH, minY, maxY);
-    if (index === 0) ctx.moveTo(point.x, point.y);
+    if (!hasBloodPressure(log)) return;
+    const point = pointFor(index, logs.length, Number(log[field]), pad, plotW, plotH, minY, maxY);
+    if (!hasPoint) ctx.moveTo(point.x, point.y);
     else ctx.lineTo(point.x, point.y);
+    hasPoint = true;
   });
   ctx.stroke();
 
   logs.forEach((log, index) => {
-    const point = pointFor(index, logs.length, log[field], pad, plotW, plotH, minY, maxY);
+    if (!hasBloodPressure(log)) return;
+    const point = pointFor(index, logs.length, Number(log[field]), pad, plotW, plotH, minY, maxY);
     ctx.beginPath();
     ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
     ctx.fill();
@@ -1111,9 +1173,10 @@ async function runWholeLogAnalysis() {
   const sorted = [...logs].sort((a, b) => logSortValue(b).localeCompare(logSortValue(a)));
   const latest = sorted[0];
   const recent = sorted.slice(0, 7);
-  const avgSys = Math.round(average(recent.map((log) => log.systolic)));
-  const avgDia = Math.round(average(recent.map((log) => log.diastolic)));
-  const highCount = recent.filter((log) => ["stage1", "stage2", "crisis"].includes(classifyBloodPressure(log.systolic, log.diastolic).key)).length;
+  const recentBp = recent.filter(hasBloodPressure);
+  const avgSys = recentBp.length ? Math.round(average(recentBp.map((log) => Number(log.systolic)))) : null;
+  const avgDia = recentBp.length ? Math.round(average(recentBp.map((log) => Number(log.diastolic)))) : null;
+  const highCount = recentBp.filter((log) => ["stage1", "stage2", "crisis"].includes(getBloodPressureCategory(log).key)).length;
   const medCount = recent.filter((log) => log.atenolol && log.adco).length;
   const exerciseAvg = Math.round(average(recent.map((log) => log.exerciseMinutes || 0)));
   const cautionDays = recent.filter((log) => foodScore(log.food || "").caution.length).length;
@@ -1121,14 +1184,14 @@ async function runWholeLogAnalysis() {
   const magnesiumAvg = Math.round(average(recent.map((log) => Number(log.magnesium) || 0)));
   const suggestions = [];
 
-  suggestions.push(`Recent average: ${avgSys}/${avgDia}`);
-  suggestions.push(`${highCount}/${recent.length} recent logs were high`);
+  suggestions.push(recentBp.length ? `Recent BP average: ${avgSys}/${avgDia}` : "No recent BP readings logged");
+  suggestions.push(`${highCount}/${recentBp.length} recent BP readings were high`);
   suggestions.push(`Medicine logged: ${medCount}/${recent.length}`);
   suggestions.push(`Exercise average: ${exerciseAvg} min/day`);
   suggestions.push(`Potassium average: ${potassiumAvg}mg`);
   suggestions.push(`Magnesium average: ${magnesiumAvg}mg`);
 
-  if (classifyBloodPressure(latest.systolic, latest.diastolic).key === "stage2") {
+  if (getBloodPressureCategory(latest)?.key === "stage2") {
     suggestions.push("Priority: repeat high readings after rest and contact your clinician if they stay high");
   }
   if (medCount < recent.length) suggestions.push("Priority: tighten medicine logging consistency");
