@@ -402,7 +402,7 @@ function getBloodPressureCategory(log) {
 
 function getFormData() {
   const data = new FormData(form);
-  const currentSast = getSastParts();
+  const currentSast = getSastNowParts();
   const date = data.get("date") || currentSast.date;
   const time = data.get("time") || currentSast.time;
   const confirmedFoods = data.get("confirmedFoods")?.trim() || "";
