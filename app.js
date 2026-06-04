@@ -6,6 +6,7 @@ const AI_LOGS_BACKEND_URL = "/api/analyze-logs";
 const AI_CHAT_BACKEND_URL = "/api/chat";
 const AI_NUTRITION_BACKEND_URL = "/api/analyze-nutrition";
 const REMINDERS_KEY = "bp-health-tracker-reminders-v1";
+const AUTH_TOKEN_KEY = "bp-health-tracker-auth-token-v1";
 let logsCache = [];
 let editingLogId = null;
 let portionEntries = [];
@@ -217,12 +218,19 @@ function loadLogs() {
 }
 
 async function appFetch(url, options = {}) {
-  const response = await fetch(url, options);
+  const response = await fetch(url, withAuth(options));
   if (response.status === 401) {
     showLogin();
     throw new Error("Login required.");
   }
   return response;
+}
+
+function withAuth(options = {}) {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const headers = { ...(options.headers || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return { ...options, headers };
 }
 
 function showLogin() {
@@ -238,7 +246,7 @@ function hideLogin() {
 }
 
 async function checkSession() {
-  const response = await fetch("/api/session");
+  const response = await fetch("/api/session", withAuth());
   const session = await response.json();
   if (session.authenticated) hideLogin();
   else showLogin();
@@ -255,6 +263,8 @@ async function login() {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.message || "Login failed.");
   }
+  const result = await response.json();
+  if (result.token) localStorage.setItem(AUTH_TOKEN_KEY, result.token);
   loginPassword.value = "";
   hideLogin();
   await refreshLogs();
@@ -262,7 +272,8 @@ async function login() {
 }
 
 async function logout() {
-  await fetch("/api/logout", { method: "POST" });
+  await fetch("/api/logout", withAuth({ method: "POST" }));
+  localStorage.removeItem(AUTH_TOKEN_KEY);
   logsCache = [];
   render();
   showLogin();
@@ -498,6 +509,10 @@ function switchToTab(tabId) {
   overflowNav.classList.add("hidden");
   moreNavBtn.setAttribute("aria-expanded", "false");
   tabPanels.forEach((panel) => panel.classList.toggle("active", panel.id === tabId));
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    document.querySelector(`#${tabId}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  });
   if (tabId === "insightsTab") drawChart(loadLogs());
 }
 

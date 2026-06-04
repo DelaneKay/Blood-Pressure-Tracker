@@ -270,7 +270,7 @@ async function handleLogin(request, response) {
     "Content-Type": "application/json; charset=utf-8",
     "Set-Cookie": buildSessionCookie(`${sessionId}.${issuedAt}.${signature}`),
   });
-  response.end(JSON.stringify({ ok: true }));
+  response.end(JSON.stringify({ ok: true, token: `${sessionId}.${issuedAt}.${signature}` }));
 }
 
 function handleLogout(request, response) {
@@ -287,15 +287,23 @@ function isAuthRequired() {
 
 function isAuthenticated(request) {
   if (!isAuthRequired()) return true;
-  const session = getSessionCookie(request);
+  const session = getSession(request);
   if (!session) return false;
   if (Date.now() - session.issuedAt > SESSION_MAX_AGE_SECONDS * 1000) return false;
   return signSession(session.id, session.issuedAt) === session.signature;
 }
 
-function getSessionCookie(request) {
+function getSession(request) {
+  const authHeader = request.headers.authorization || "";
+  if (authHeader.startsWith("Bearer ")) {
+    return parseSessionValue(authHeader.slice("Bearer ".length));
+  }
+
   const cookies = parseCookies(request.headers.cookie || "");
-  const value = cookies.bp_session;
+  return parseSessionValue(cookies.bp_session);
+}
+
+function parseSessionValue(value) {
   if (!value || !value.includes(".")) return null;
   const [id, issuedAtText, signature] = value.split(".");
   const issuedAt = Number(issuedAtText);
