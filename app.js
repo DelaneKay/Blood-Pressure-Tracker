@@ -196,6 +196,8 @@ const chatStatusBadge = document.querySelector("#chatStatusBadge");
 const quickQuestions = document.querySelectorAll(".quick-question");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll(".tab-panel");
+const moreNavBtn = document.querySelector("#moreNavBtn");
+const overflowNav = document.querySelector("#overflowNav");
 
 const today = new Date();
 const sastNow = getSastNowParts(today);
@@ -492,6 +494,9 @@ function addPortion() {
 
 function switchToTab(tabId) {
   tabButtons.forEach((item) => item.classList.toggle("active", item.dataset.tab === tabId));
+  moreNavBtn.classList.toggle("active", ["historyTab", "referenceTab"].includes(tabId));
+  overflowNav.classList.add("hidden");
+  moreNavBtn.setAttribute("aria-expanded", "false");
   tabPanels.forEach((panel) => panel.classList.toggle("active", panel.id === tabId));
   if (tabId === "insightsTab") drawChart(loadLogs());
 }
@@ -1478,8 +1483,19 @@ identifiedFoods.addEventListener("click", (event) => {
 
 tabButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    switchToTab(button.dataset.tab);
+    if (button === moreNavBtn) {
+      const isOpen = overflowNav.classList.toggle("hidden") === false;
+      moreNavBtn.setAttribute("aria-expanded", String(isOpen));
+      return;
+    }
+    if (button.dataset.tab) switchToTab(button.dataset.tab);
   });
+});
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".tabbar")) return;
+  overflowNav.classList.add("hidden");
+  moreNavBtn.setAttribute("aria-expanded", "false");
 });
 
 populateFoodOptions();

@@ -24,6 +24,9 @@ body {
     linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0) 250px),
     var(--bg);
   color: var(--ink);
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
 }
 
 button,
@@ -36,7 +39,7 @@ textarea {
 .app-shell {
   width: min(1440px, 100%);
   margin: 0 auto;
-  padding: 24px;
+  padding: 24px 24px calc(96px + env(safe-area-inset-bottom));
 }
 
 .login-overlay {
@@ -134,35 +137,75 @@ h3 {
 }
 
 .tabbar {
+  position: fixed;
+  left: 50%;
+  right: auto;
+  bottom: 0;
+  z-index: 15;
+  transform: translateX(-50%);
   display: flex;
-  gap: 8px;
+  gap: 0;
   align-items: center;
-  margin: 0 0 20px;
-  padding: 6px;
-  width: fit-content;
-  max-width: 100%;
-  overflow-x: auto;
-  background: rgba(255, 255, 255, 0.72);
+  justify-content: space-around;
+  margin: 0;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  width: min(100%, 720px);
+  background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--line);
+  border-bottom: 0;
   border-radius: 0;
-  box-shadow: 0 10px 28px rgba(35, 50, 42, 0.06);
+  box-shadow: 0 -12px 32px rgba(35, 50, 42, 0.12);
 }
 
 .tab-button {
-  min-width: 104px;
+  display: grid;
+  place-items: center;
+  min-width: 48px;
+  min-height: 48px;
   border: 0;
   border-radius: 0;
   color: var(--muted);
   background: transparent;
   cursor: pointer;
   font-weight: 800;
-  padding: 11px 16px;
-  white-space: nowrap;
+  padding: 10px;
+  touch-action: manipulation;
 }
 
 .tab-button.active {
   color: white;
   background: var(--ink);
+}
+
+.tab-button svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.overflow-nav {
+  position: absolute;
+  right: 8px;
+  bottom: calc(66px + env(safe-area-inset-bottom));
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.overflow-nav.hidden {
+  display: none;
+}
+
+.overflow-item {
+  border: 1px solid var(--line);
+  background: var(--soft);
 }
 
 .tab-panel {
@@ -815,20 +858,12 @@ th {
 
 @media (max-width: 680px) {
   .app-shell {
-    padding: 14px;
+    padding: 14px 14px calc(96px + env(safe-area-inset-bottom));
   }
 
   .topbar {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .tabbar {
-    width: 100%;
-  }
-
-  .tab-button {
-    min-width: max-content;
   }
 
   .metric-grid {
