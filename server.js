@@ -168,7 +168,7 @@ async function upsertLog(log) {
 
 async function replaceAllLogs(logs) {
   if (USE_SUPABASE) {
-    await clearAllLogs();
+    await supabaseRequest("/rest/v1/logs?id=not.is.null", { method: "DELETE" });
     if (!logs.length) return;
     await supabaseRequest("/rest/v1/logs?on_conflict=id", {
       method: "POST",
@@ -206,14 +206,6 @@ async function deleteLogById(id) {
     return;
   }
   db.prepare("DELETE FROM logs WHERE id = ?").run(id);
-}
-
-async function clearAllLogs() {
-  if (USE_SUPABASE) {
-    await supabaseRequest("/rest/v1/logs?id=not.is.null", { method: "DELETE" });
-    return;
-  }
-  db.exec("DELETE FROM logs");
 }
 
 async function supabaseRequest(pathname, options = {}) {
@@ -367,12 +359,6 @@ async function handleLogsApi(request, response) {
       return;
     }
     await replaceAllLogs(logs);
-    sendJson(response, 200, { ok: true });
-    return;
-  }
-
-  if (request.method === "DELETE" && url.pathname === "/api/logs") {
-    await clearAllLogs();
     sendJson(response, 200, { ok: true });
     return;
   }

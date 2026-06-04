@@ -163,7 +163,6 @@ const trendChart = document.querySelector("#trendChart");
 const alertBox = document.querySelector("#alertBox");
 const resetTodayBtn = document.querySelector("#resetTodayBtn");
 const exportBtn = document.querySelector("#exportBtn");
-const clearLogsBtn = document.querySelector("#clearLogsBtn");
 const importJsonInput = document.querySelector("#importJsonInput");
 const databaseBackupBtn = document.querySelector("#databaseBackupBtn");
 const analyzeAllBtn = document.querySelector("#analyzeAllBtn");
@@ -302,12 +301,6 @@ async function saveLog(log) {
 async function deleteLog(id) {
   const response = await appFetch(`${LOGS_API_URL}/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!response.ok) throw new Error("Could not delete log.");
-  await refreshLogs();
-}
-
-async function clearLogs() {
-  const response = await appFetch(LOGS_API_URL, { method: "DELETE" });
-  if (!response.ok) throw new Error("Could not clear logs.");
   await refreshLogs();
 }
 
@@ -1427,15 +1420,6 @@ importJsonInput.addEventListener("change", async () => {
     await replaceLogs(logs);
     render();
     importJsonInput.value = "";
-  } catch (error) {
-    alert(error.message);
-  }
-});
-
-clearLogsBtn.addEventListener("click", async () => {
-  try {
-    await clearLogs();
-    render();
   } catch (error) {
     alert(error.message);
   }

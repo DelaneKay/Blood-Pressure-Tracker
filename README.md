@@ -137,13 +137,12 @@ Online storage uses Supabase Postgres. Local fallback storage uses:
 health_tracker.db
 ```
 
-The frontend saves, loads, deletes, clears, and exports logs through backend API routes:
+The frontend saves, loads, deletes individual entries, imports, and exports logs through backend API routes:
 
 - `GET /api/logs`
 - `POST /api/logs`
 - `PUT /api/logs`
 - `DELETE /api/logs/:id`
-- `DELETE /api/logs`
 - `GET /api/database-backup`
 - `POST /api/analyze-logs`
 - `POST /api/analyze-nutrition`
