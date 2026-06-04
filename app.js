@@ -12,6 +12,7 @@ let editingLogId = null;
 let portionEntries = [];
 let lastReminderMinute = "";
 let sessionReady = false;
+let selectedActivityItemId = null;
 
 const bpCategories = [
   {
@@ -160,6 +161,12 @@ const coachText = document.querySelector("#coachText");
 const deepAnalysis = document.querySelector("#deepAnalysis");
 const historyBody = document.querySelector("#historyBody");
 const activityBody = document.querySelector("#activityBody");
+const activityDetailOverlay = document.querySelector("#activityDetailOverlay");
+const activityDetailTitle = document.querySelector("#activityDetailTitle");
+const activityDetailBody = document.querySelector("#activityDetailBody");
+const closeActivityDetailBtn = document.querySelector("#closeActivityDetailBtn");
+const editActivityDetailBtn = document.querySelector("#editActivityDetailBtn");
+const deleteActivityDetailBtn = document.querySelector("#deleteActivityDetailBtn");
 const trendChart = document.querySelector("#trendChart");
 const alertBox = document.querySelector("#alertBox");
 const resetTodayBtn = document.querySelector("#resetTodayBtn");
@@ -568,27 +575,126 @@ function buildDailySummary(logs, date = isoToday) {
   };
 }
 
-function describeActivityType(log) {
-  const types = [];
-  if (log.food || log.confirmedFoods || (log.portionEntries || []).length) types.push("Meal");
-  if (log.atenolol || log.adco) types.push("Medication");
-  if (Number(log.exerciseMinutes) > 0 || (log.exerciseDone && log.exerciseDone !== "none")) types.push("Exercise");
-  if (log.weight) types.push("Weight");
-  if (Number(log.pulse) > 0) types.push("Pulse");
-  if (Number(log.potassium) > 0 || Number(log.magnesium) > 0) types.push("Nutrients");
-  if (log.notes) types.push("Notes");
-  return types.length ? types.join(", ") : "Log";
+function getActivityItems(logs) {
+  return logs
+    .flatMap((log) => {
+      const items = [];
+      const nutrition = log.estimatedNutrition || {};
+      const hasMeal = Boolean(log.food || log.confirmedFoods || (log.portionEntries || []).length);
+      const hasExercise = Number(log.exerciseMinutes) > 0 || (log.exerciseDone && log.exerciseDone !== "none");
+      const hasMedication = Boolean(log.atenolol || log.adco);
+      const hasWeight = Boolean(log.weight);
+      const hasPulseOnly = Number(log.pulse) > 0 && !hasBloodPressure(log);
+      const hasNutrients = Number(log.potassium) > 0 || Number(log.magnesium) > 0 || Number(nutrition.netCarbs) > 0 || Number(nutrition.glycemicLoad) > 0;
+
+      if (hasMeal) {
+        items.push({
+          id: `${log.id}::meal`,
+          logId: log.id,
+          kind: "meal",
+          type: "Meal",
+          summary: log.food || log.confirmedFoods || "Food logged",
+        });
+      }
+      if (hasExercise) {
+        items.push({
+          id: `${log.id}::exercise`,
+          logId: log.id,
+          kind: "exercise",
+          type: "Exercise",
+          summary: `${Number(log.exerciseMinutes) || 0} min ${formatExerciseName(log.exerciseDone)}`,
+        });
+      }
+      if (hasMedication) {
+        items.push({
+          id: `${log.id}::medication`,
+          logId: log.id,
+          kind: "medication",
+          type: "Medication",
+          summary: [log.atenolol ? "Atenolol/Kiara" : "", log.adco ? "Adco-Retic" : ""].filter(Boolean).join(", "),
+        });
+      }
+      if (hasWeight) {
+        items.push({
+          id: `${log.id}::weight`,
+          logId: log.id,
+          kind: "weight",
+          type: "Weight",
+          summary: `${log.weight}kg`,
+        });
+      }
+      if (hasPulseOnly) {
+        items.push({
+          id: `${log.id}::pulse`,
+          logId: log.id,
+          kind: "pulse",
+          type: "Pulse",
+          summary: `${log.pulse} bpm`,
+        });
+      }
+      if (hasNutrients && !hasMeal) {
+        items.push({
+          id: `${log.id}::nutrients`,
+          logId: log.id,
+          kind: "nutrients",
+          type: "Nutrients",
+          summary: `K ${formatNumber(Number(log.potassium) || 0)}mg, Mg ${formatNumber(Number(log.magnesium) || 0)}mg`,
+        });
+      }
+      if (log.notes) {
+        items.push({
+          id: `${log.id}::notes`,
+          logId: log.id,
+          kind: "notes",
+          type: "Notes",
+          summary: log.notes,
+        });
+      }
+      return items.map((item) => ({ ...item, date: log.date, time: log.time, sortValue: logSortValue(log) }));
+    })
+    .sort((a, b) => b.sortValue.localeCompare(a.sortValue));
 }
 
-function describeActivityDetails(log) {
-  const details = [];
-  if (log.food) details.push(log.food);
-  if (log.weight) details.push(`${log.weight}kg`);
-  if (Number(log.exerciseMinutes) > 0) details.push(`${log.exerciseMinutes} min ${log.exerciseDone || "exercise"}`);
-  if (log.atenolol || log.adco) details.push(`Meds: ${[log.atenolol ? "Atenolol/Kiara" : "", log.adco ? "Adco-Retic" : ""].filter(Boolean).join(", ")}`);
-  if (Number(log.potassium) > 0 || Number(log.magnesium) > 0) details.push(`K ${formatNumber(Number(log.potassium) || 0)}mg, Mg ${formatNumber(Number(log.magnesium) || 0)}mg`);
-  if (log.notes) details.push(log.notes);
-  return details.length ? details.join(" | ") : "-";
+function formatExerciseName(value) {
+  const labels = {
+    none: "exercise",
+    cycling: "cycling",
+    resistance: "resistance training",
+    isometric: "isometric work",
+    yoga: "yoga / breathing",
+    mixed: "mixed session",
+  };
+  return labels[value] || value || "exercise";
+}
+
+function getNutritionChecksForLog(log) {
+  const nutrition = log.estimatedNutrition || estimateFoodNutrition(log.food || "");
+  const combined = {
+    ...nutrition,
+    potassium: Math.max(Number(log.manualPotassium) || 0, nutrition.potassium || Number(log.potassium) || 0),
+    magnesium: Math.max(Number(log.manualMagnesium) || 0, nutrition.magnesium || Number(log.magnesium) || 0),
+  };
+  return [
+    { key: "potassium", label: "Potassium", value: combined.potassium, ...foodDailyLimits.potassium },
+    { key: "magnesium", label: "Magnesium", value: combined.magnesium, ...foodDailyLimits.magnesium },
+    { key: "netCarbs", label: "Net carbs", value: combined.netCarbs, ...foodDailyLimits.netCarbs },
+    { key: "carbFiberRatio", label: "Carb:fiber ratio", value: combined.carbFiberRatio, ...foodDailyLimits.carbFiberRatio },
+    { key: "glycemicLoad", label: "Glycemic load", value: combined.glycemicLoad, ...foodDailyLimits.glycemicLoad },
+  ];
+}
+
+function renderDetailRows(rows) {
+  return rows
+    .filter((row) => row.value !== null && row.value !== undefined && row.value !== "")
+    .map(
+      (row) => `
+        <div class="detail-row">
+          <span>${escapeHtml(row.label)}</span>
+          <strong>${escapeHtml(row.value)}</strong>
+        </div>
+      `
+    )
+    .join("");
 }
 
 function formatDate(date) {
@@ -1080,27 +1186,123 @@ function renderHistory(logs) {
 }
 
 function renderActivityHistory(logs) {
-  const sorted = [...logs].filter((log) => !hasBloodPressure(log)).sort((a, b) => logSortValue(b).localeCompare(logSortValue(a)));
-  if (!sorted.length) {
+  const items = getActivityItems(logs);
+  if (!items.length) {
     activityBody.innerHTML = `<tr><td colspan="5">No other logs yet.</td></tr>`;
     return;
   }
-  activityBody.innerHTML = sorted
+  activityBody.innerHTML = items
     .map(
-      (log) => `
-        <tr>
-          <td>${escapeHtml(formatDate(log.date))}</td>
-          <td>${escapeHtml(formatTime(log))}</td>
-          <td>${escapeHtml(describeActivityType(log))}</td>
-          <td>${escapeHtml(describeActivityDetails(log))}</td>
+      (item) => `
+        <tr class="clickable-row" data-activity-id="${escapeHtml(item.id)}">
+          <td>${escapeHtml(formatDate(item.date))}</td>
+          <td>${escapeHtml(formatTime(item))}</td>
+          <td>${escapeHtml(item.type)}</td>
+          <td>${escapeHtml(item.summary)}</td>
           <td>
-            <button class="ghost-button edit-btn" type="button" data-id="${escapeHtml(log.id)}">Edit</button>
-            <button class="delete-btn" type="button" data-id="${escapeHtml(log.id)}">Delete</button>
+            <button class="ghost-button view-activity-btn" type="button" data-activity-id="${escapeHtml(item.id)}">Open</button>
           </td>
         </tr>
       `
     )
     .join("");
+}
+
+function showActivityDetail(activityId) {
+  const logs = loadLogs();
+  const item = getActivityItems(logs).find((entry) => entry.id === activityId);
+  if (!item) return;
+  const log = logs.find((entry) => entry.id === item.logId);
+  if (!log) return;
+  selectedActivityItemId = activityId;
+  activityDetailTitle.textContent = `${item.type} - ${formatDate(log.date)} ${formatTime(log)}`;
+  activityDetailBody.innerHTML = buildActivityDetailHtml(item, log);
+  activityDetailOverlay.classList.remove("hidden");
+}
+
+function hideActivityDetail() {
+  selectedActivityItemId = null;
+  activityDetailOverlay.classList.add("hidden");
+}
+
+function buildActivityDetailHtml(item, log) {
+  if (item.kind === "meal") return buildMealDetailHtml(log);
+  if (item.kind === "exercise") {
+    return renderDetailRows([
+      { label: "Exercise type", value: formatExerciseName(log.exerciseDone) },
+      { label: "Minutes", value: `${Number(log.exerciseMinutes) || 0} min` },
+      { label: "Logged at", value: `${formatDate(log.date)} ${formatTime(log)}` },
+      { label: "Notes", value: log.notes },
+    ]);
+  }
+  if (item.kind === "medication") {
+    return renderDetailRows([
+      { label: "Atenolol/Kiara", value: log.atenolol ? "Taken" : "Not logged" },
+      { label: "Adco-Retic", value: log.adco ? "Taken" : "Not logged" },
+      { label: "Logged at", value: `${formatDate(log.date)} ${formatTime(log)}` },
+      { label: "Notes", value: log.notes },
+    ]);
+  }
+  if (item.kind === "weight") {
+    return renderDetailRows([
+      { label: "Weight", value: `${log.weight}kg` },
+      { label: "Logged at", value: `${formatDate(log.date)} ${formatTime(log)}` },
+      { label: "Notes", value: log.notes },
+    ]);
+  }
+  if (item.kind === "pulse") {
+    return renderDetailRows([
+      { label: "Pulse", value: `${log.pulse} bpm` },
+      { label: "Logged at", value: `${formatDate(log.date)} ${formatTime(log)}` },
+      { label: "Notes", value: log.notes },
+    ]);
+  }
+  if (item.kind === "nutrients") return buildNutrientDetailHtml(log);
+  return renderDetailRows([
+    { label: "Notes", value: log.notes },
+    { label: "Logged at", value: `${formatDate(log.date)} ${formatTime(log)}` },
+  ]);
+}
+
+function buildMealDetailHtml(log) {
+  const portions = (log.portionEntries || [])
+    .map((entry) => {
+      const food = foodDatabase.find((item) => item.key === entry.key);
+      return `${formatNumber(Number(entry.servings) || 1)} serving(s) ${food?.label || entry.key}`;
+    })
+    .join(", ");
+  const matches = (log.estimatedNutrition?.matches || []).map((item) => item.label).join(", ");
+  return [
+    renderDetailRows([
+      { label: "Food entered", value: log.food || log.confirmedFoods || "-" },
+      { label: "Portions", value: portions },
+      { label: "AI/photo foods", value: log.confirmedFoods },
+      { label: "Foods matched", value: matches },
+      { label: "Photo file", value: log.foodPhotoName },
+      { label: "Logged at", value: `${formatDate(log.date)} ${formatTime(log)}` },
+    ]),
+    buildNutrientDetailHtml(log),
+  ].join("");
+}
+
+function buildNutrientDetailHtml(log) {
+  const checks = getNutritionChecksForLog(log);
+  return `
+    <div class="detail-subtitle">Nutrients and limits</div>
+    ${checks
+      .map((check) => {
+        const unit = check.unit || "";
+        const targetText = check.direction === "atLeast" ? `target ${check.target}${unit}` : `limit ${check.target}${unit}`;
+        const status = isLimitMet(check) ? "Met" : "Open";
+        return `
+          <div class="detail-row">
+            <span>${escapeHtml(check.label)}</span>
+            <strong>${formatNumber(check.value)}${escapeHtml(unit)} / ${escapeHtml(targetText)} - ${status}</strong>
+          </div>
+        `;
+      })
+      .join("")}
+  `;
 }
 
 function renderReports(logs) {
@@ -1564,7 +1766,34 @@ async function handleLogTableClick(event) {
 }
 
 historyBody.addEventListener("click", handleLogTableClick);
-activityBody.addEventListener("click", handleLogTableClick);
+activityBody.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-activity-id]");
+  if (!target) return;
+  showActivityDetail(target.dataset.activityId);
+});
+
+closeActivityDetailBtn.addEventListener("click", hideActivityDetail);
+activityDetailOverlay.addEventListener("click", (event) => {
+  if (event.target === activityDetailOverlay) hideActivityDetail();
+});
+editActivityDetailBtn.addEventListener("click", () => {
+  const item = getActivityItems(loadLogs()).find((entry) => entry.id === selectedActivityItemId);
+  const log = item ? loadLogs().find((entry) => entry.id === item.logId) : null;
+  if (!log) return;
+  hideActivityDetail();
+  loadLogIntoForm(log);
+});
+deleteActivityDetailBtn.addEventListener("click", async () => {
+  const item = getActivityItems(loadLogs()).find((entry) => entry.id === selectedActivityItemId);
+  if (!item) return;
+  try {
+    await deleteLog(item.logId);
+    hideActivityDetail();
+    render();
+  } catch (error) {
+    alert(error.message);
+  }
+});
 
 resetTodayBtn.addEventListener("click", () => {
   resetFormForNewLog();

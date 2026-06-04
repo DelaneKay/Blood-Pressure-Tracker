@@ -335,7 +335,7 @@
           <div class="panel history-panel">
           <div class="section-title">
             <h2>Other Logs</h2>
-            <span class="badge neutral">Meals, meds, exercise, weight</span>
+            <span class="badge neutral">Meals, exercise, meds, weight</span>
           </div>
           <div class="table-wrap">
             <table>
@@ -345,7 +345,7 @@
                   <th>Time</th>
                   <th>Type</th>
                   <th>Details</th>
-                  <th>Actions</th>
+                  <th>View</th>
                 </tr>
               </thead>
               <tbody id="activityBody"></tbody>
@@ -471,6 +471,20 @@
       </main>
     </div>
 
-    <script src="./app.js?v=20260604-3"></script>
+    <div id="activityDetailOverlay" class="detail-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="activityDetailTitle">
+      <div class="detail-panel">
+        <div class="section-title">
+          <h2 id="activityDetailTitle">Log Details</h2>
+          <button id="closeActivityDetailBtn" class="ghost-button" type="button">Close</button>
+        </div>
+        <div id="activityDetailBody" class="detail-body"></div>
+        <div class="action-row">
+          <button id="editActivityDetailBtn" class="ghost-button" type="button">Edit full entry</button>
+          <button id="deleteActivityDetailBtn" class="delete-btn" type="button">Delete full entry</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js?v=20260604-4"></script>
   </body>
 </html>
