@@ -18,7 +18,7 @@ const APP_USERNAME = process.env.APP_USERNAME || "admin";
 const APP_PASSWORD = process.env.APP_PASSWORD || "";
 const SESSION_SECRET = process.env.SESSION_SECRET || "";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
-const sessions = new Map();
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
 
 if (IS_PRODUCTION && (!APP_PASSWORD || !SESSION_SECRET)) {
   throw new Error("Production requires APP_PASSWORD and SESSION_SECRET environment variables.");
@@ -72,6 +72,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/api/analyze-logs") {
       await handleLogsAnalysis(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/api/analyze-nutrition") {
+      await handleNutritionAnalysis(request, response);
       return;
     }
 
@@ -259,18 +264,16 @@ async function handleLogin(request, response) {
   }
 
   const sessionId = crypto.randomBytes(32).toString("hex");
-  const signature = signSession(sessionId);
-  sessions.set(sessionId, { username, createdAt: Date.now() });
+  const issuedAt = Date.now();
+  const signature = signSession(sessionId, issuedAt);
   response.writeHead(200, {
     "Content-Type": "application/json; charset=utf-8",
-    "Set-Cookie": buildSessionCookie(`${sessionId}.${signature}`),
+    "Set-Cookie": buildSessionCookie(`${sessionId}.${issuedAt}.${signature}`),
   });
   response.end(JSON.stringify({ ok: true }));
 }
 
 function handleLogout(request, response) {
-  const session = getSessionCookie(request);
-  if (session?.id) sessions.delete(session.id);
   response.writeHead(200, {
     "Content-Type": "application/json; charset=utf-8",
     "Set-Cookie": buildSessionCookie("", true),
@@ -286,20 +289,25 @@ function isAuthenticated(request) {
   if (!isAuthRequired()) return true;
   const session = getSessionCookie(request);
   if (!session) return false;
-  if (signSession(session.id) !== session.signature) return false;
-  return sessions.has(session.id);
+  if (Date.now() - session.issuedAt > SESSION_MAX_AGE_SECONDS * 1000) return false;
+  return signSession(session.id, session.issuedAt) === session.signature;
 }
 
 function getSessionCookie(request) {
   const cookies = parseCookies(request.headers.cookie || "");
   const value = cookies.bp_session;
   if (!value || !value.includes(".")) return null;
-  const [id, signature] = value.split(".");
-  return { id, signature };
+  const [id, issuedAtText, signature] = value.split(".");
+  const issuedAt = Number(issuedAtText);
+  if (!id || !Number.isFinite(issuedAt) || !signature) return null;
+  return { id, issuedAt, signature };
 }
 
-function signSession(sessionId) {
-  return crypto.createHmac("sha256", SESSION_SECRET || "local-dev-session-secret").update(sessionId).digest("hex");
+function signSession(sessionId, issuedAt) {
+  return crypto
+    .createHmac("sha256", SESSION_SECRET || "local-dev-session-secret")
+    .update(`${sessionId}.${issuedAt}`)
+    .digest("hex");
 }
 
 function buildSessionCookie(value, clear = false) {
@@ -308,7 +316,7 @@ function buildSessionCookie(value, clear = false) {
     "Path=/",
     "HttpOnly",
     "SameSite=Lax",
-    clear ? "Max-Age=0" : "Max-Age=604800",
+    clear ? "Max-Age=0" : `Max-Age=${SESSION_MAX_AGE_SECONDS}`,
   ];
   if (IS_PRODUCTION) parts.push("Secure");
   return parts.join("; ");
@@ -468,6 +476,65 @@ async function handleLogsAnalysis(request, response) {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.2,
+          response_mime_type: "application/json",
+        },
+      }),
+    }
+  );
+
+  if (!geminiResponse.ok) {
+    const text = await geminiResponse.text();
+    sendJson(response, 502, { message: `Gemini request failed: ${text.slice(0, 240)}` });
+    return;
+  }
+
+  const payload = await geminiResponse.json();
+  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  sendJson(response, 200, safeJson(text));
+}
+
+async function handleNutritionAnalysis(request, response) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey.includes("paste_your_new_key_here")) {
+    sendJson(response, 400, {
+      message: "Gemini API key is not configured. Add a new private key to .env first.",
+    });
+    return;
+  }
+
+  const body = await readJsonBody(request);
+  const log = body.log || {};
+  const checks = Array.isArray(body.checks) ? body.checks : [];
+  if (!log.id || !checks.length) {
+    sendJson(response, 400, { message: "Log and nutrition checks are required." });
+    return;
+  }
+
+  const prompt = [
+    "You are the nutrition insight engine for a private blood-pressure and low-carb tracker.",
+    "Analyze today's logged foods and nutrient checks. Return strict JSON only:",
+    '{"summary":"short summary","items":[{"title":"short title","advice":"specific advice","priority":"low|medium|high"}]}',
+    "Targets: potassium and magnesium should be at or above their targets. Net carbs, carb-to-fiber ratio, and glycemic load should stay at or below their limits.",
+    "Explain carb-to-fiber ratio simply: lower is better; the app target is below 7:1.",
+    "For potassium and magnesium below target, recommend practical foods common in South Africa where possible: spinach, swiss chard/silverbeet, beet greens, avocado, pumpkin seeds, almonds, peanuts, pilchards/sardines, mackerel, plain yoghurt/maas if tolerated, broccoli, cabbage, mushrooms, beans/lentils only if carb plan allows, and potassium-rich low-carb greens.",
+    "For net carbs, glycemic load, or carb:fiber ratio over limit, identify likely foods from the log that pushed it up and suggest lower-carb swaps common in South Africa such as eggs, chicken, fish, mince, wors in moderation, avocado, spinach, cabbage, cauliflower, broccoli, green beans, salad, cucumber, and unsweetened rooibos.",
+    "If a target was met, say which logged foods likely helped and what to continue.",
+    "Do not diagnose. Do not advise changing prescribed medicine. Mention kidney/clinician caution for high potassium supplements.",
+    "Logged food/nutrition:",
+    JSON.stringify({ food: log.food, estimatedNutrition: log.estimatedNutrition, portionEntries: log.portionEntries, manualPotassium: log.manualPotassium, manualMagnesium: log.manualMagnesium }),
+    "Checks:",
+    JSON.stringify(checks),
+  ].join("\n");
+
+  const geminiResponse = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.25,
           response_mime_type: "application/json",
         },
       }),

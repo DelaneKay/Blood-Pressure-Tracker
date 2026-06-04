@@ -4,6 +4,7 @@ const LOGS_API_URL = "/api/logs";
 const AI_FOOD_BACKEND_URL = "/api/analyze-food-photo";
 const AI_LOGS_BACKEND_URL = "/api/analyze-logs";
 const AI_CHAT_BACKEND_URL = "/api/chat";
+const AI_NUTRITION_BACKEND_URL = "/api/analyze-nutrition";
 const REMINDERS_KEY = "bp-health-tracker-reminders-v1";
 let logsCache = [];
 let editingLogId = null;
@@ -152,6 +153,7 @@ const targetList = document.querySelector("#targetList");
 const targetScore = document.querySelector("#targetScore");
 const nutritionSummary = document.querySelector("#nutritionSummary");
 const nutritionList = document.querySelector("#nutritionList");
+const nutritionAdvice = document.querySelector("#nutritionAdvice");
 const foodScoreBadge = document.querySelector("#foodScoreBadge");
 const coachText = document.querySelector("#coachText");
 const deepAnalysis = document.querySelector("#deepAnalysis");
@@ -646,6 +648,7 @@ function updateInsights(log, logs) {
     weightMetricTrend.textContent = "Trend starts after 2 logs";
     nutritionSummary.textContent = "Save a food log to estimate potassium, magnesium, net carbs, fiber ratio, and food quality.";
     nutritionList.innerHTML = "";
+    nutritionAdvice.innerHTML = "";
     foodScoreBadge.textContent = "Waiting";
     foodScoreBadge.className = "badge neutral";
     coachText.textContent = "Your coach will combine today's blood pressure, medication, food, exercise, weight, and nutrient notes after you save a log.";
@@ -727,6 +730,7 @@ function renderNutrition(log) {
   const matched = nutrition.matches?.length ? nutrition.matches.map((item) => item.label).join(", ") : "no known foods matched";
   nutritionSummary.textContent = `Matched ${matched}. Manual potassium or magnesium entries are used when they are higher than the food estimate.`;
   nutritionList.innerHTML = checks.map(renderNutritionItem).join("");
+  renderNutritionAdvice(log, checks);
 }
 
 function isLimitMet(check) {
@@ -751,6 +755,109 @@ function renderNutritionItem(check) {
       <span>${met ? "Met" : "Open"}</span>
     </div>
   `;
+}
+
+function renderNutritionAdvice(log, checks) {
+  const localItems = buildLocalNutritionAdvice(log, checks);
+  nutritionAdvice.innerHTML = renderAdviceCards(localItems);
+  requestNutritionAdvice(log, checks, localItems);
+}
+
+function buildLocalNutritionAdvice(log, checks) {
+  const foodText = (log.food || "").toLowerCase();
+  const matched = log.estimatedNutrition?.matches || [];
+  const matchedNames = matched.map((item) => item.label).join(", ");
+  const items = checks.map((check) => {
+    const met = isLimitMet(check);
+    if (check.key === "potassium") {
+      return {
+        title: met ? "Potassium target reached" : "Potassium still low",
+        priority: met ? "low" : "high",
+        advice: met
+          ? `${matchedNames || "Your logged food"} likely helped. Keep using avocado, spinach, swiss chard/silverbeet, beet greens, celery, fish, and low-carb greens if they suit you.`
+          : "Add South Africa-friendly potassium foods: avocado, spinach, swiss chard/silverbeet, beet greens, broccoli, mushrooms, pilchards/sardines, mackerel, or low-carb greens. Use potassium supplements only with clinician guidance.",
+      };
+    }
+    if (check.key === "magnesium") {
+      return {
+        title: met ? "Magnesium target reached" : "Magnesium still low",
+        priority: met ? "low" : "medium",
+        advice: met
+          ? `${matchedNames || "Your logged food"} likely contributed. Keep using spinach, cacao, pumpkin seeds, almonds, peanuts, fish, and leafy greens where they fit your carb plan.`
+          : "Add magnesium foods: pumpkin seeds, almonds, peanuts, spinach, swiss chard/silverbeet, cacao, mackerel, sardines, or plain yoghurt/maas if tolerated and compatible with your plan.",
+      };
+    }
+    if (check.key === "netCarbs") {
+      return {
+        title: met ? "Net carbs within limit" : "Net carbs over limit",
+        priority: met ? "low" : "high",
+        advice: met
+          ? "Good. Stay with eggs, meat, fish, chicken, avocado, spinach, cabbage, cauliflower, broccoli, salad, and unsweetened rooibos."
+          : `Likely carb drivers: ${findLikelyCarbDrivers(foodText)}. Swap toward eggs, chicken, fish, mince, avocado, cabbage, cauliflower, spinach, broccoli, cucumber, salad, or green beans.`,
+      };
+    }
+    if (check.key === "carbFiberRatio") {
+      return {
+        title: met ? "Carb:fiber ratio is good" : "Carb:fiber ratio too high",
+        priority: met ? "low" : "medium",
+        advice: met
+          ? "Lower is better here, and your ratio is below 7:1. High-fiber low-carb vegetables are helping."
+          : "For carb:fiber ratio, lower is better. Choose carbs with more fiber: leafy greens, cabbage, broccoli, cauliflower, green beans, avocado, chia/flaxseed. Reduce refined starches and sweet drinks.",
+      };
+    }
+    return {
+      title: met ? "Glycemic load within limit" : "Glycemic load over limit",
+      priority: met ? "low" : "high",
+      advice: met
+        ? "Good. This suggests the meal is less likely to spike glucose heavily."
+        : `Likely glycemic-load drivers: ${findLikelyCarbDrivers(foodText)}. Use lower-load meals built around protein, healthy fats, and non-starchy vegetables.`,
+    };
+  });
+  return items;
+}
+
+function findLikelyCarbDrivers(foodText) {
+  const drivers = ["bread", "rice", "pasta", "potato", "sugar", "juice", "soda", "cake", "biscuit", "cookies", "starch", "pap", "maize", "cereal", "oats", "banana", "fruit"];
+  const found = drivers.filter((item) => foodText.includes(item));
+  return found.length ? found.join(", ") : "starchy or sweet foods in the meal";
+}
+
+function renderAdviceCards(items) {
+  return items
+    .map(
+      (item) => `
+        <div class="advice-card ${escapeHtml(item.priority || "low")}">
+          <strong>${escapeHtml(item.title)}</strong>
+          <span>${escapeHtml(item.advice)}</span>
+        </div>
+      `
+    )
+    .join("");
+}
+
+async function requestNutritionAdvice(log, checks, localItems) {
+  try {
+    const response = await appFetch(AI_NUTRITION_BACKEND_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ log, checks }),
+    });
+    if (!response.ok) return;
+    const result = await response.json();
+    const aiItems = Array.isArray(result.items) ? result.items : [];
+    if (!aiItems.length) return;
+    const items = [
+      {
+        title: "AI summary",
+        advice: result.summary || "AI nutrition feedback based on today's limits.",
+        priority: "low",
+      },
+      ...aiItems,
+    ];
+    nutritionAdvice.innerHTML = renderAdviceCards(items);
+  } catch {
+    nutritionAdvice.innerHTML = renderAdviceCards(localItems);
+  }
 }
 
 function formatNumber(value) {

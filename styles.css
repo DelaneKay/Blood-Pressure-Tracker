@@ -506,13 +506,15 @@ fieldset {
 }
 
 .portion-list,
-.report-list {
+.report-list,
+.nutrition-advice {
   display: grid;
   gap: 10px;
 }
 
 .portion-row,
-.report-item {
+.report-item,
+.advice-card {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -520,6 +522,32 @@ fieldset {
   padding: 11px 12px;
   border: 1px solid var(--line);
   background: var(--soft);
+}
+
+.nutrition-advice {
+  margin-top: 14px;
+}
+
+.advice-card {
+  display: block;
+  line-height: 1.5;
+}
+
+.advice-card strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.advice-card.high {
+  border-left: 5px solid var(--red);
+}
+
+.advice-card.medium {
+  border-left: 5px solid var(--amber);
+}
+
+.advice-card.low {
+  border-left: 5px solid var(--green);
 }
 
 .portion-row button {

@@ -84,6 +84,7 @@ Use the Supabase Project Settings API page to copy:
 - Weekly and monthly reports
 - Local reminders while the app is open
 - AI chat for questions about your logs, low-carb meals, BP support habits, and doctor-discussion prompts
+- AI nutrition feedback for daily potassium, magnesium, net carb, carb:fiber ratio, and glycemic load results
 - JSON export of your logs
 - JSON import of your logs
 - SQLite database download
@@ -145,6 +146,7 @@ The frontend saves, loads, deletes, clears, and exports logs through backend API
 - `DELETE /api/logs`
 - `GET /api/database-backup`
 - `POST /api/analyze-logs`
+- `POST /api/analyze-nutrition`
 - `POST /api/chat`
 
 The old browser-only local storage is no longer the source of truth.
@@ -168,6 +170,10 @@ Reminders are local browser reminders. They check every 30 seconds while the app
 The Chat tab sends your question to the backend, and the backend adds recent SQLite logs plus the app's blood-pressure and low-carb notes before calling Gemini. It can discuss patterns in your logs, potassium/magnesium and low-carb targets, food choices, cycling/exercise, breathing, sleep, stress, and questions to ask your clinician.
 
 The chat is not Dr Eric Berg DC and does not replace your clinician. It can discuss low-carb/BP concepts inspired by your notes, but it should not diagnose or change medication.
+
+## Nutrition feedback
+
+The Food Limits panel uses local rules first, then asks Gemini for more specific feedback. Potassium and magnesium are minimum targets. Net carbs, carb:fiber ratio, and glycemic load are maximum limits. The AI prompt asks for South Africa-friendly food suggestions where possible.
 
 ## Key safety
 
