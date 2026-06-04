@@ -62,6 +62,9 @@
           <button class="tab-button overflow-item" type="button" data-tab="historyTab" aria-label="History">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h16M8 5v14" /></svg>
           </button>
+          <button class="tab-button overflow-item" type="button" data-tab="activityTab" aria-label="Other logs">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v16H6V4Zm3 4h6M9 12h6M9 16h4" /></svg>
+          </button>
           <button class="tab-button overflow-item" type="button" data-tab="referenceTab" aria-label="Reference">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 0-4-4V4Zm0 12h10" /></svg>
           </button>
@@ -153,7 +156,7 @@
         <section id="logTab" class="tab-panel">
           <div class="panel log-panel">
           <div class="section-title">
-            <h2>Today's Log</h2>
+            <h2>New Log Entry</h2>
             <button id="resetTodayBtn" class="ghost-button" type="button">Clear form</button>
           </div>
 
@@ -197,11 +200,11 @@
             <fieldset>
               <legend>Medication taken</legend>
               <label class="check-row">
-                <input id="atenolol" name="atenolol" type="checkbox" checked />
+                <input id="atenolol" name="atenolol" type="checkbox" />
                 Atenolol 100 / Kiara - 1 tablet
               </label>
               <label class="check-row">
-                <input id="adco" name="adco" type="checkbox" checked />
+                <input id="adco" name="adco" type="checkbox" />
                 Adco-Retic diuretic - 1/2 tablet
               </label>
             </fieldset>
@@ -289,7 +292,7 @@
             </label>
 
             <div class="action-row">
-              <button id="saveLogBtn" class="primary-button" type="submit">Save daily log</button>
+              <button id="saveLogBtn" class="primary-button" type="submit">Save log</button>
               <button id="cancelEditBtn" class="ghost-button hidden" type="button">Cancel edit</button>
             </div>
           </form>
@@ -299,7 +302,7 @@
         <section id="historyTab" class="tab-panel">
           <div class="panel history-panel">
           <div class="section-title">
-            <h2>History</h2>
+            <h2>BP History</h2>
             <div class="action-row">
               <button id="exportBtn" class="ghost-button" type="button">Export JSON</button>
               <button id="databaseBackupBtn" class="ghost-button" type="button">Download DB</button>
@@ -323,6 +326,29 @@
                 </tr>
               </thead>
               <tbody id="historyBody"></tbody>
+            </table>
+          </div>
+          </div>
+        </section>
+
+        <section id="activityTab" class="tab-panel">
+          <div class="panel history-panel">
+          <div class="section-title">
+            <h2>Other Logs</h2>
+            <span class="badge neutral">Meals, meds, exercise, weight</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th>Type</th>
+                  <th>Details</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="activityBody"></tbody>
             </table>
           </div>
           </div>

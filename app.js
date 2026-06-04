@@ -159,6 +159,7 @@ const foodScoreBadge = document.querySelector("#foodScoreBadge");
 const coachText = document.querySelector("#coachText");
 const deepAnalysis = document.querySelector("#deepAnalysis");
 const historyBody = document.querySelector("#historyBody");
+const activityBody = document.querySelector("#activityBody");
 const trendChart = document.querySelector("#trendChart");
 const alertBox = document.querySelector("#alertBox");
 const resetTodayBtn = document.querySelector("#resetTodayBtn");
@@ -504,8 +505,90 @@ function estimateFoodNutrition(food, portions = []) {
   return totals;
 }
 
-function latestLog(logs) {
-  return [...logs].sort((a, b) => logSortValue(b).localeCompare(logSortValue(a)))[0];
+function latestBloodPressureLog(logs) {
+  return [...logs].filter(hasBloodPressure).sort((a, b) => logSortValue(b).localeCompare(logSortValue(a)))[0] || null;
+}
+
+function getLogsForDate(logs, date) {
+  return logs.filter((log) => log.date === date);
+}
+
+function sumNutrition(logs) {
+  const matches = logs.flatMap((log) => log.estimatedNutrition?.matches || []);
+  const totals = logs.reduce(
+    (sum, log) => {
+      const nutrition = log.estimatedNutrition || {};
+      sum.potassium += Number(log.potassium) || Number(nutrition.potassium) || 0;
+      sum.magnesium += Number(log.magnesium) || Number(nutrition.magnesium) || 0;
+      sum.carbs += Number(nutrition.carbs) || 0;
+      sum.fiber += Number(nutrition.fiber) || 0;
+      sum.netCarbs += Number(nutrition.netCarbs) || 0;
+      sum.glycemicLoad += Number(nutrition.glycemicLoad) || 0;
+      return sum;
+    },
+    { potassium: 0, magnesium: 0, carbs: 0, fiber: 0, netCarbs: 0, glycemicLoad: 0 }
+  );
+  totals.carbFiberRatio = totals.fiber > 0 ? Number((totals.carbs / totals.fiber).toFixed(1)) : totals.carbs > 0 ? 99 : 0;
+  totals.matches = matches;
+  return totals;
+}
+
+function buildDailySummary(logs, date = isoToday) {
+  const entries = getLogsForDate(logs, date);
+  if (!entries.length) return null;
+  const sorted = [...entries].sort((a, b) => logSortValue(b).localeCompare(logSortValue(a)));
+  const latest = sorted[0];
+  const latestWeight = sorted.find((log) => log.weight)?.weight || null;
+  const latestPulse = sorted.find((log) => Number(log.pulse) > 0)?.pulse || null;
+  const latestBp = sorted.find(hasBloodPressure) || null;
+  const nutrition = sumNutrition(entries);
+  return {
+    id: `daily-${date}`,
+    date,
+    time: latest.time,
+    timestampSast: latest.timestampSast,
+    systolic: latestBp?.systolic || null,
+    diastolic: latestBp?.diastolic || null,
+    pulse: latestPulse,
+    weight: latestWeight,
+    atenolol: entries.some((log) => log.atenolol),
+    adco: entries.some((log) => log.adco),
+    potassium: nutrition.potassium,
+    magnesium: nutrition.magnesium,
+    manualPotassium: 0,
+    manualMagnesium: 0,
+    estimatedNutrition: nutrition,
+    portionEntries: entries.flatMap((log) => log.portionEntries || []),
+    food: entries.map((log) => log.food).filter(Boolean).join(", "),
+    confirmedFoods: entries.map((log) => log.confirmedFoods).filter(Boolean).join(", "),
+    exerciseDone: entries.some((log) => log.exerciseDone && log.exerciseDone !== "none") ? "mixed" : "none",
+    exerciseMinutes: entries.reduce((sum, log) => sum + (Number(log.exerciseMinutes) || 0), 0),
+    notes: entries.map((log) => log.notes).filter(Boolean).join(" | "),
+    entryCount: entries.length,
+  };
+}
+
+function describeActivityType(log) {
+  const types = [];
+  if (log.food || log.confirmedFoods || (log.portionEntries || []).length) types.push("Meal");
+  if (log.atenolol || log.adco) types.push("Medication");
+  if (Number(log.exerciseMinutes) > 0 || (log.exerciseDone && log.exerciseDone !== "none")) types.push("Exercise");
+  if (log.weight) types.push("Weight");
+  if (Number(log.pulse) > 0) types.push("Pulse");
+  if (Number(log.potassium) > 0 || Number(log.magnesium) > 0) types.push("Nutrients");
+  if (log.notes) types.push("Notes");
+  return types.length ? types.join(", ") : "Log";
+}
+
+function describeActivityDetails(log) {
+  const details = [];
+  if (log.food) details.push(log.food);
+  if (log.weight) details.push(`${log.weight}kg`);
+  if (Number(log.exerciseMinutes) > 0) details.push(`${log.exerciseMinutes} min ${log.exerciseDone || "exercise"}`);
+  if (log.atenolol || log.adco) details.push(`Meds: ${[log.atenolol ? "Atenolol/Kiara" : "", log.adco ? "Adco-Retic" : ""].filter(Boolean).join(", ")}`);
+  if (Number(log.potassium) > 0 || Number(log.magnesium) > 0) details.push(`K ${formatNumber(Number(log.potassium) || 0)}mg, Mg ${formatNumber(Number(log.magnesium) || 0)}mg`);
+  if (log.notes) details.push(log.notes);
+  return details.length ? details.join(" | ") : "-";
 }
 
 function formatDate(date) {
@@ -547,7 +630,7 @@ function addPortion() {
 
 function switchToTab(tabId) {
   tabButtons.forEach((item) => item.classList.toggle("active", item.dataset.tab === tabId));
-  moreNavBtn.classList.toggle("active", ["historyTab", "referenceTab"].includes(tabId));
+  moreNavBtn.classList.toggle("active", ["historyTab", "activityTab", "referenceTab"].includes(tabId));
   overflowNav.classList.add("hidden");
   moreNavBtn.setAttribute("aria-expanded", "false");
   tabPanels.forEach((panel) => panel.classList.toggle("active", panel.id === tabId));
@@ -587,8 +670,8 @@ function resetFormForNewLog() {
   const now = getSastNowParts();
   dateInput.value = now.date;
   timeInput.value = now.time;
-  document.querySelector("#atenolol").checked = true;
-  document.querySelector("#adco").checked = true;
+  document.querySelector("#atenolol").checked = false;
+  document.querySelector("#adco").checked = false;
   confirmedFoodsInput.value = "";
   identifiedFoods.innerHTML = "";
   foodPhotoInput.value = "";
@@ -597,19 +680,19 @@ function resetFormForNewLog() {
   renderPhotoPreview(null);
   photoAiBadge.textContent = "AI-ready";
   editingLogId = null;
-  saveLogBtn.textContent = "Save daily log";
+  saveLogBtn.textContent = "Save log";
   cancelEditBtn.classList.add("hidden");
 }
 
-function getRecommendations(log, logs) {
+function getRecommendations(log, logs, bpLog = null) {
   if (!log) return [];
 
   const tips = [];
-  const category = getBloodPressureCategory(log);
+  const category = getBloodPressureCategory(bpLog || log);
   const food = foodScore(log.food);
 
   if (!category) {
-    tips.push("Blood pressure was not logged for this entry. Meal, weight, exercise, and nutrient patterns will still be tracked.");
+    tips.push("No blood pressure reading is logged today yet. Meal, weight, exercise, and nutrient patterns are still being tracked.");
   } else if (category.key === "crisis") {
     tips.push("If you have chest pain, shortness of breath, weakness, vision changes, confusion, severe headache, or other concerning symptoms, seek emergency care now. If no symptoms, recheck after resting and contact your clinician urgently.");
   } else if (category.key === "stage2") {
@@ -696,8 +779,8 @@ function getTargets(log) {
   ];
 }
 
-function updateInsights(log, logs) {
-  if (!log) {
+function updateInsights(log, logs, latestBp = null) {
+  if (!log && !latestBp) {
     categoryBadge.textContent = "Waiting";
     categoryBadge.className = "badge";
     readingSummary.textContent = "Add your blood pressure reading to get the daily status and next steps.";
@@ -722,18 +805,19 @@ function updateInsights(log, logs) {
     return;
   }
 
-  const category = getBloodPressureCategory(log);
+  const bpLog = latestBp || (hasBloodPressure(log) ? log : null);
+  const category = getBloodPressureCategory(bpLog);
   categoryBadge.textContent = category?.label || "BP not logged";
   categoryBadge.className = `badge ${category?.key || "neutral"}`;
-  todayStatus.textContent = category ? `${formatBloodPressure(log)} - ${category.label}` : "BP not logged";
-  bpMetric.textContent = formatBloodPressure(log);
-  bpMetricStatus.textContent = category?.label || "Add reading when available";
-  pulseMetric.textContent = log.pulse || "--";
-  weightMetric.textContent = log.weight ? `${log.weight}kg` : "--";
-  weightMetricTrend.textContent = getWeightTrendText(log, logs);
+  todayStatus.textContent = category ? `${formatBloodPressure(bpLog)} - ${category.label}` : "BP not logged today";
+  bpMetric.textContent = bpLog ? formatBloodPressure(bpLog) : "--/--";
+  bpMetricStatus.textContent = category ? `${category.label} - ${formatDate(bpLog.date)} ${formatTime(bpLog)}` : "Add reading when available";
+  pulseMetric.textContent = bpLog?.pulse || log?.pulse || "--";
+  weightMetric.textContent = log?.weight ? `${log.weight}kg` : "--";
+  weightMetricTrend.textContent = log ? getWeightTrendText(log, logs) : "Trend starts after 2 logs";
   readingSummary.textContent = category
-    ? `${category.summary} ${log.pulse ? `Pulse is ${log.pulse} bpm. ` : ""}This app uses home-tracking guidance and does not diagnose or change medication.`
-    : "This log does not include a blood pressure reading. Food, nutrients, weight, exercise, and notes are still saved for trend analysis.";
+    ? `${category.summary} ${bpLog?.pulse ? `Pulse is ${bpLog.pulse} bpm. ` : ""}This is your latest BP reading, while today's meals and activities are tracked cumulatively.`
+    : "Today's entries do not include a blood pressure reading yet. Food, nutrients, weight, exercise, and notes are still saved for trend analysis.";
 
   if (category?.key === "crisis") {
     alertBox.textContent = "Crisis-range reading: rest and recheck. If you have severe symptoms, seek emergency care now. Contact your clinician urgently if the reading remains very high.";
@@ -742,7 +826,7 @@ function updateInsights(log, logs) {
     alertBox.classList.add("hidden");
   }
 
-  const tips = getRecommendations(log, logs);
+  const tips = getRecommendations(log || bpLog, logs, bpLog);
   recommendations.innerHTML = tips.map((tip) => `<li>${escapeHtml(tip)}</li>`).join("");
 
   const targets = getTargets(log);
@@ -760,8 +844,17 @@ function updateInsights(log, logs) {
     )
     .join("");
 
-  renderNutrition(log);
-  coachText.textContent = buildCoachMessage(log, logs, category, targets, tips);
+  if (log) {
+    renderNutrition(log);
+    nutritionSummary.textContent = `${nutritionSummary.textContent} Today's totals combine ${log.entryCount || 1} log(s).`;
+  } else {
+    nutritionSummary.textContent = "Save a food log today to estimate potassium, magnesium, net carbs, fiber ratio, and food quality.";
+    nutritionList.innerHTML = "";
+    nutritionAdvice.innerHTML = "";
+    foodScoreBadge.textContent = "Waiting";
+    foodScoreBadge.className = "badge neutral";
+  }
+  coachText.textContent = buildCoachMessage(log || bpLog, logs, category, targets, tips);
 }
 
 function getWeightTrendText(log, logs) {
@@ -961,7 +1054,11 @@ function average(values) {
 }
 
 function renderHistory(logs) {
-  const sorted = [...logs].sort((a, b) => logSortValue(b).localeCompare(logSortValue(a)));
+  const sorted = [...logs].filter(hasBloodPressure).sort((a, b) => logSortValue(b).localeCompare(logSortValue(a)));
+  if (!sorted.length) {
+    historyBody.innerHTML = `<tr><td colspan="7">No blood pressure readings logged yet.</td></tr>`;
+    return;
+  }
   historyBody.innerHTML = sorted
     .map(
       (log) => `
@@ -972,6 +1069,30 @@ function renderHistory(logs) {
           <td>${log.pulse || "-"}</td>
           <td>${log.weight ? `${log.weight}kg` : "-"}</td>
           <td>${escapeHtml(getBloodPressureCategory(log)?.label || "Not logged")}</td>
+          <td>
+            <button class="ghost-button edit-btn" type="button" data-id="${escapeHtml(log.id)}">Edit</button>
+            <button class="delete-btn" type="button" data-id="${escapeHtml(log.id)}">Delete</button>
+          </td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+function renderActivityHistory(logs) {
+  const sorted = [...logs].filter((log) => !hasBloodPressure(log)).sort((a, b) => logSortValue(b).localeCompare(logSortValue(a)));
+  if (!sorted.length) {
+    activityBody.innerHTML = `<tr><td colspan="5">No other logs yet.</td></tr>`;
+    return;
+  }
+  activityBody.innerHTML = sorted
+    .map(
+      (log) => `
+        <tr>
+          <td>${escapeHtml(formatDate(log.date))}</td>
+          <td>${escapeHtml(formatTime(log))}</td>
+          <td>${escapeHtml(describeActivityType(log))}</td>
+          <td>${escapeHtml(describeActivityDetails(log))}</td>
           <td>
             <button class="ghost-button edit-btn" type="button" data-id="${escapeHtml(log.id)}">Edit</button>
             <button class="delete-btn" type="button" data-id="${escapeHtml(log.id)}">Delete</button>
@@ -1314,9 +1435,11 @@ function escapeHtml(value) {
 
 function render() {
   const logs = loadLogs();
-  const latest = latestLog(logs);
-  updateInsights(latest, logs);
+  const dailySummary = buildDailySummary(logs, isoToday);
+  const latestBp = latestBloodPressureLog(logs);
+  updateInsights(dailySummary, logs, latestBp);
   renderHistory(logs);
+  renderActivityHistory(logs);
   renderReports(logs);
   drawChart(logs);
 }
@@ -1422,7 +1545,7 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-historyBody.addEventListener("click", async (event) => {
+async function handleLogTableClick(event) {
   const editButton = event.target.closest(".edit-btn");
   if (editButton) {
     const log = loadLogs().find((entry) => entry.id === editButton.dataset.id);
@@ -1438,7 +1561,10 @@ historyBody.addEventListener("click", async (event) => {
   } catch (error) {
     alert(error.message);
   }
-});
+}
+
+historyBody.addEventListener("click", handleLogTableClick);
+activityBody.addEventListener("click", handleLogTableClick);
 
 resetTodayBtn.addEventListener("click", () => {
   resetFormForNewLog();
