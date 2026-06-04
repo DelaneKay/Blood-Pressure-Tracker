@@ -11,7 +11,7 @@ const PORT = Number(process.env.PORT || 5178);
 const HOST = process.env.HOST || "127.0.0.1";
 const DB_PATH = process.env.DB_PATH || path.join(ROOT, "health_tracker.db");
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_URL = normalizeSupabaseUrl(process.env.SUPABASE_URL || "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 const APP_USERNAME = process.env.APP_USERNAME || "admin";
@@ -119,6 +119,13 @@ function initDatabase() {
   return database;
 }
 
+function normalizeSupabaseUrl(value) {
+  return String(value)
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/rest\/v1$/i, "");
+}
+
 async function listLogs() {
   if (USE_SUPABASE) {
     const rows = await supabaseRequest("/rest/v1/logs?select=payload&order=timestamp_sast.desc,updated_at.desc");
@@ -218,12 +225,23 @@ async function supabaseRequest(pathname, options = {}) {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Supabase request failed: ${text.slice(0, 240)}`);
+    throw new Error(`Supabase request failed (${response.status}): ${explainSupabaseError(text)}`);
   }
 
   if (response.status === 204) return null;
   const text = await response.text();
   return text ? safeJson(text) : null;
+}
+
+function explainSupabaseError(text) {
+  const parsed = safeJson(text);
+  if (parsed.code === "PGRST125") {
+    return "Invalid Supabase REST URL. In Render, SUPABASE_URL should be your project URL like https://project-ref.supabase.co, not an API path.";
+  }
+  if (parsed.code === "42P01") {
+    return "Supabase table 'logs' was not found. Run supabase-schema.sql in the Supabase SQL editor.";
+  }
+  return parsed.message || text.slice(0, 240);
 }
 
 async function handleLogin(request, response) {
