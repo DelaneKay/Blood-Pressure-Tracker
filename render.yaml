@@ -10,11 +10,13 @@ services:
         value: production
       - key: HOST
         value: 0.0.0.0
-      - key: DB_PATH
-        value: /data/health_tracker.db
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
       - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: APP_USERNAME
         sync: false
@@ -22,7 +24,3 @@ services:
         sync: false
       - key: SESSION_SECRET
         sync: false
-    disk:
-      name: tracker-data
-      mountPath: /data
-      sizeGB: 1

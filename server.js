@@ -11,6 +11,9 @@ const PORT = Number(process.env.PORT || 5178);
 const HOST = process.env.HOST || "127.0.0.1";
 const DB_PATH = process.env.DB_PATH || path.join(ROOT, "health_tracker.db");
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 const APP_USERNAME = process.env.APP_USERNAME || "admin";
 const APP_PASSWORD = process.env.APP_PASSWORD || "";
 const SESSION_SECRET = process.env.SESSION_SECRET || "";
@@ -21,7 +24,7 @@ if (IS_PRODUCTION && (!APP_PASSWORD || !SESSION_SECRET)) {
   throw new Error("Production requires APP_PASSWORD and SESSION_SECRET environment variables.");
 }
 
-const db = initDatabase();
+const db = USE_SUPABASE ? null : initDatabase();
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -116,6 +119,113 @@ function initDatabase() {
   return database;
 }
 
+async function listLogs() {
+  if (USE_SUPABASE) {
+    const rows = await supabaseRequest("/rest/v1/logs?select=payload&order=timestamp_sast.desc,updated_at.desc");
+    return rows.map((row) => row.payload).filter((log) => log?.id);
+  }
+
+  const rows = db.prepare("SELECT payload FROM logs ORDER BY json_extract(payload, '$.timestampSast') DESC, updated_at DESC").all();
+  return rows.map((row) => safeJson(row.payload)).filter((log) => log.id);
+}
+
+async function upsertLog(log) {
+  if (USE_SUPABASE) {
+    await supabaseRequest("/rest/v1/logs?on_conflict=id", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify([
+        {
+          id: log.id,
+          timestamp_sast: log.timestampSast || null,
+          payload: log,
+        },
+      ]),
+    });
+    return;
+  }
+
+  db.prepare(
+    `
+    INSERT INTO logs (id, payload, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = CURRENT_TIMESTAMP
+  `
+  ).run(log.id, JSON.stringify(log));
+}
+
+async function replaceAllLogs(logs) {
+  if (USE_SUPABASE) {
+    await clearAllLogs();
+    if (!logs.length) return;
+    await supabaseRequest("/rest/v1/logs?on_conflict=id", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify(
+        logs
+          .filter((log) => log.id)
+          .map((log) => ({
+            id: log.id,
+            timestamp_sast: log.timestampSast || null,
+            payload: log,
+          }))
+      ),
+    });
+    return;
+  }
+
+  db.exec("BEGIN");
+  try {
+    db.exec("DELETE FROM logs");
+    const statement = db.prepare("INSERT INTO logs (id, payload) VALUES (?, ?)");
+    logs.forEach((log) => {
+      if (log.id) statement.run(log.id, JSON.stringify(log));
+    });
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+async function deleteLogById(id) {
+  if (USE_SUPABASE) {
+    await supabaseRequest(`/rest/v1/logs?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
+    return;
+  }
+  db.prepare("DELETE FROM logs WHERE id = ?").run(id);
+}
+
+async function clearAllLogs() {
+  if (USE_SUPABASE) {
+    await supabaseRequest("/rest/v1/logs?id=not.is.null", { method: "DELETE" });
+    return;
+  }
+  db.exec("DELETE FROM logs");
+}
+
+async function supabaseRequest(pathname, options = {}) {
+  const response = await fetch(`${SUPABASE_URL}${pathname}`, {
+    method: options.method || "GET",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    body: options.body,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Supabase request failed: ${text.slice(0, 240)}`);
+  }
+
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? safeJson(text) : null;
+}
+
 async function handleLogin(request, response) {
   if (!isAuthRequired()) {
     sendJson(response, 200, { ok: true });
@@ -201,8 +311,7 @@ async function handleLogsApi(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (request.method === "GET" && url.pathname === "/api/logs") {
-    const rows = db.prepare("SELECT payload FROM logs ORDER BY json_extract(payload, '$.timestampSast') DESC, updated_at DESC").all();
-    sendJson(response, 200, rows.map((row) => safeJson(row.payload)).filter((log) => log.id));
+    sendJson(response, 200, await listLogs());
     return;
   }
 
@@ -212,13 +321,7 @@ async function handleLogsApi(request, response) {
       sendJson(response, 400, { message: "Log id is required." });
       return;
     }
-    db.prepare(
-      `
-      INSERT INTO logs (id, payload, updated_at)
-      VALUES (?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = CURRENT_TIMESTAMP
-    `
-    ).run(log.id, JSON.stringify(log));
+    await upsertLog(log);
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -229,31 +332,20 @@ async function handleLogsApi(request, response) {
       sendJson(response, 400, { message: "Expected an array of logs." });
       return;
     }
-    db.exec("BEGIN");
-    try {
-      db.exec("DELETE FROM logs");
-      const statement = db.prepare("INSERT INTO logs (id, payload) VALUES (?, ?)");
-      logs.forEach((log) => {
-        if (log.id) statement.run(log.id, JSON.stringify(log));
-      });
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
-    }
+    await replaceAllLogs(logs);
     sendJson(response, 200, { ok: true });
     return;
   }
 
   if (request.method === "DELETE" && url.pathname === "/api/logs") {
-    db.exec("DELETE FROM logs");
+    await clearAllLogs();
     sendJson(response, 200, { ok: true });
     return;
   }
 
   if (request.method === "DELETE" && url.pathname.startsWith("/api/logs/")) {
     const id = decodeURIComponent(url.pathname.replace("/api/logs/", ""));
-    db.prepare("DELETE FROM logs WHERE id = ?").run(id);
+    await deleteLogById(id);
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -392,8 +484,7 @@ async function handleChat(request, response) {
     return;
   }
 
-  const rows = db.prepare("SELECT payload FROM logs ORDER BY json_extract(payload, '$.timestampSast') DESC, updated_at DESC LIMIT 90").all();
-  const logs = rows.map((row) => safeJson(row.payload)).filter((log) => log.id);
+  const logs = (await listLogs()).slice(0, 90);
   const prompt = [
     "You are the AI coach inside a private blood-pressure and low-carb tracking app.",
     "You may use the user's logs, targets, food notes, and the low-carb/BP concepts below.",
@@ -436,6 +527,20 @@ async function handleChat(request, response) {
 }
 
 function serveDatabaseBackup(response) {
+  if (USE_SUPABASE) {
+    listLogs()
+      .then((logs) => {
+        const stamp = new Date().toISOString().slice(0, 10);
+        response.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Content-Disposition": `attachment; filename="health_tracker_${stamp}.json"`,
+        });
+        response.end(JSON.stringify(logs, null, 2));
+      })
+      .catch((error) => sendJson(response, 500, { message: error.message }));
+    return;
+  }
+
   fs.readFile(DB_PATH, (error, data) => {
     if (error) {
       sendJson(response, 404, { message: "Database file not found." });

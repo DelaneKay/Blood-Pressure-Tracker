@@ -20,7 +20,7 @@ The old `index.html` direct-open mode still works for basic logging, but AI need
 
 ## Online deployment
 
-This app needs a Node backend, so it should not be deployed to GitHub Pages. Use a host that can run `server.js` and provide persistent storage for SQLite.
+This app needs a Node backend, so it should not be deployed to GitHub Pages. Use a host that can run `server.js`.
 
 The repo includes a Render blueprint:
 
@@ -33,15 +33,16 @@ Render environment variables to set:
 ```env
 NODE_ENV=production
 HOST=0.0.0.0
-DB_PATH=/data/health_tracker.db
 GEMINI_API_KEY=your_private_key
 GEMINI_MODEL=gemini-2.5-flash
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_private_service_role_key
 APP_USERNAME=your_username
 APP_PASSWORD=strong_private_password
 SESSION_SECRET=long_random_secret
 ```
 
-The `/data` disk in `render.yaml` is where SQLite persists. Do not store the database in the GitHub repo.
+Online persistence uses Supabase. SQLite remains available only as a local fallback when Supabase env vars are not set.
 
 GitHub Actions:
 
@@ -49,7 +50,22 @@ GitHub Actions:
 - Push to `main`
 - The workflow checks `server.js`, then triggers the Render deploy hook
 
-Do not put Gemini keys, passwords, session secrets, or SQLite files in GitHub.
+Do not put Gemini keys, Supabase service-role keys, passwords, session secrets, or SQLite files in GitHub.
+
+## Supabase setup
+
+Create a Supabase project, then open the SQL editor and run:
+
+```text
+supabase-schema.sql
+```
+
+This creates the `logs` table used by the backend. The frontend never talks directly to Supabase. The Node backend talks to Supabase with `SUPABASE_SERVICE_ROLE_KEY`, so keep that key private in Render environment variables only.
+
+Use the Supabase Project Settings API page to copy:
+
+- `SUPABASE_URL`
+- `service_role` key for `SUPABASE_SERVICE_ROLE_KEY`
 
 ## What it tracks
 
@@ -112,15 +128,15 @@ If a key was pasted into chat or shared anywhere, revoke it and create a new one
 
 Whole-log analysis already works locally using your saved readings and food logs. A future backend can replace or extend that with a stronger AI coach.
 
-## SQLite storage
+## Storage
 
-The backend stores logs in:
+Online storage uses Supabase Postgres. Local fallback storage uses:
 
 ```text
 health_tracker.db
 ```
 
-The frontend now saves, loads, deletes, clears, and exports logs through backend API routes:
+The frontend saves, loads, deletes, clears, and exports logs through backend API routes:
 
 - `GET /api/logs`
 - `POST /api/logs`
@@ -131,7 +147,9 @@ The frontend now saves, loads, deletes, clears, and exports logs through backend
 - `POST /api/analyze-logs`
 - `POST /api/chat`
 
-The old browser-only local storage is no longer the source of truth. Keep a backup copy of `health_tracker.db` if you want to preserve your history.
+The old browser-only local storage is no longer the source of truth.
+
+When using Supabase, the **Download DB** button exports a JSON backup of your logs. When using local SQLite fallback, it downloads the SQLite database file.
 
 ## Login protection
 
