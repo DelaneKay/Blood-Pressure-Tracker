@@ -446,7 +446,7 @@ function getFormData() {
     portionEntries: [...portionEntries],
     food,
     confirmedFoods,
-    foodPhotoName: foodPhotoInput.files[0]?.name || "",
+    foodPhotoName: [...foodPhotoInput.files].slice(0, 6).map((file) => file.name).join(", "),
     foodPhotoAnalyzed: Boolean(confirmedFoods),
     exerciseDone: data.get("exerciseDone"),
     exerciseMinutes: Number(data.get("exerciseMinutes")) || 0,
@@ -1278,7 +1278,7 @@ function buildMealDetailHtml(log) {
       { label: "Portions", value: portions },
       { label: "AI/photo foods", value: log.confirmedFoods },
       { label: "Foods matched", value: matches },
-      { label: "Photo file", value: log.foodPhotoName },
+      { label: "Photo files", value: log.foodPhotoName },
       { label: "Logged at", value: `${formatDate(log.date)} ${formatTime(log)}` },
     ]),
     buildNutrientDetailHtml(log),
@@ -1526,26 +1526,33 @@ async function runWholeLogAnalysis() {
   deepAnalysis.innerHTML = suggestions.map((item) => `<span class="analysis-pill">${escapeHtml(item)}</span>`).join("");
 }
 
-function renderPhotoPreview(file) {
-  if (!file) {
-    foodPhotoPreview.textContent = "No photo selected";
-    photoAnalysisStatus.textContent = "Upload a food photo, then confirm the foods the AI identifies before saving.";
+function renderPhotoPreview(files) {
+  const selected = [...(files || [])].slice(0, 6);
+  if (!selected.length) {
+    foodPhotoPreview.textContent = "No photos selected";
+    photoAnalysisStatus.textContent = "Upload up to 6 meal photos. They will be analyzed together in one Gemini request.";
     return;
   }
 
-  const reader = new FileReader();
-  reader.addEventListener("load", () => {
-    foodPhotoPreview.innerHTML = `<img src="${reader.result}" alt="Selected food preview" />`;
-    photoAnalysisStatus.textContent = "Photo loaded. Analyze it when an AI vision backend is connected, or type/confirm foods manually.";
-    photoAiBadge.textContent = "Photo ready";
+  foodPhotoPreview.innerHTML = "";
+  selected.forEach((file, index) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      const image = document.createElement("img");
+      image.src = reader.result;
+      image.alt = `Selected meal photo ${index + 1}`;
+      foodPhotoPreview.appendChild(image);
+    });
+    reader.readAsDataURL(file);
   });
-  reader.readAsDataURL(file);
+  photoAnalysisStatus.textContent = `${selected.length} photo${selected.length === 1 ? "" : "s"} ready for one combined analysis.`;
+  photoAiBadge.textContent = `${selected.length} ready`;
 }
 
 async function analyzeFoodPhoto() {
-  const file = foodPhotoInput.files[0];
-  if (!file) {
-    photoAnalysisStatus.textContent = "Choose a food photo first.";
+  const files = [...foodPhotoInput.files].slice(0, 6);
+  if (!files.length) {
+    photoAnalysisStatus.textContent = "Choose at least one food photo first.";
     return;
   }
 
@@ -1558,14 +1565,14 @@ async function analyzeFoodPhoto() {
     return;
   }
 
-  photoAnalysisStatus.textContent = "Sending photo for AI analysis...";
+  photoAnalysisStatus.textContent = `Preparing ${files.length} photo${files.length === 1 ? "" : "s"} for one Gemini analysis...`;
   photoAiBadge.textContent = "Analyzing";
   try {
-    const imageDataUrl = await readFileAsDataUrl(file);
+    const imageDataUrls = await Promise.all(files.map(compressImageForAnalysis));
     const response = await appFetch(AI_FOOD_BACKEND_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageDataUrl }),
+      body: JSON.stringify({ imageDataUrls }),
     });
 
     if (!response.ok) {
@@ -1577,7 +1584,7 @@ async function analyzeFoodPhoto() {
     const foods = Array.isArray(result.foods) ? result.foods : [];
     renderIdentifiedFoods(foods.map((item) => item.name || item).filter(Boolean));
     photoAnalysisStatus.textContent = foods.length
-      ? "AI identified foods. Confirm the list before saving."
+      ? `Gemini analyzed ${files.length} photo${files.length === 1 ? "" : "s"} together. Confirm the combined food list before saving.`
       : "AI did not identify foods clearly. Type the foods manually.";
     photoAiBadge.textContent = "Review";
   } catch (error) {
@@ -1586,10 +1593,24 @@ async function analyzeFoodPhoto() {
   }
 }
 
-function readFileAsDataUrl(file) {
+function compressImageForAnalysis(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.addEventListener("load", () => resolve(reader.result));
+    reader.addEventListener("load", () => {
+      const image = new Image();
+      image.addEventListener("load", () => {
+        const maxDimension = 1280;
+        const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.78));
+      });
+      image.addEventListener("error", () => reject(new Error(`Could not process ${file.name}`)));
+      image.src = reader.result;
+    });
     reader.addEventListener("error", () => reject(new Error("Could not read image file")));
     reader.readAsDataURL(file);
   });
@@ -1886,7 +1907,10 @@ logoutBtn.addEventListener("click", async () => {
 });
 
 foodPhotoInput.addEventListener("change", () => {
-  renderPhotoPreview(foodPhotoInput.files[0]);
+  if (foodPhotoInput.files.length > 6) {
+    photoAnalysisStatus.textContent = "Only the first 6 photos will be analyzed in this request.";
+  }
+  renderPhotoPreview(foodPhotoInput.files);
 });
 
 analyzePhotoBtn.addEventListener("click", analyzeFoodPhoto);

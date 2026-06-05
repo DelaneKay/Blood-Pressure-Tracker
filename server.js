@@ -384,8 +384,9 @@ async function handleFoodPhotoAnalysis(request, response) {
   }
 
   const body = await readJsonBody(request);
-  const image = parseDataUrl(body.imageDataUrl);
-  if (!image) {
+  const imageValues = Array.isArray(body.imageDataUrls) ? body.imageDataUrls.slice(0, 6) : [body.imageDataUrl];
+  const images = imageValues.map(parseDataUrl).filter(Boolean);
+  if (!images.length) {
     sendJson(response, 400, { message: "Missing or invalid image data." });
     return;
   }
@@ -401,16 +402,17 @@ async function handleFoodPhotoAnalysis(request, response) {
             parts: [
               {
                 text:
-                  "Identify the foods in this meal photo. Return strict JSON only with this shape: " +
+                  `Identify the foods across all ${images.length} meal photos. Treat them as photos from the same meal or day, combine the results, and remove duplicates. ` +
+                  "Return strict JSON only with this shape: " +
                   '{"foods":[{"name":"food name","confidence":"low|medium|high","portion":"rough portion if visible"}],"notes":"short note"} ' +
-                  "Use common food names. Do not give medical advice.",
+                  "Use common food names. If the same food appears in multiple photos, list it once and use the clearest visible portion estimate. Do not give medical advice.",
               },
-              {
+              ...images.map((image) => ({
                 inline_data: {
                   mime_type: image.mimeType,
                   data: image.base64,
                 },
-              },
+              })),
             ],
           },
         ],
@@ -530,22 +532,10 @@ async function handleChat(request, response) {
 }
 
 async function requestTextAi(prompt, options = {}) {
-  const providers = [];
-  if (isConfiguredKey(process.env.DEEPSEEK_API_KEY)) providers.push(requestDeepSeek);
-  if (isConfiguredKey(process.env.GEMINI_API_KEY)) providers.push(requestGeminiText);
-  if (!providers.length) {
-    throw new Error("No text AI is configured. Add DEEPSEEK_API_KEY or GEMINI_API_KEY.");
+  if (!isConfiguredKey(process.env.DEEPSEEK_API_KEY)) {
+    throw new Error("DeepSeek is not configured. Add DEEPSEEK_API_KEY.");
   }
-
-  const errors = [];
-  for (const provider of providers) {
-    try {
-      return await provider(prompt, options);
-    } catch (error) {
-      errors.push(error.message);
-    }
-  }
-  throw new Error(`AI request failed: ${errors.join(" | ")}`.slice(0, 500));
+  return requestDeepSeek(prompt, options);
 }
 
 function isConfiguredKey(value) {
@@ -574,32 +564,6 @@ async function requestDeepSeek(prompt, options = {}) {
   const text = payload.choices?.[0]?.message?.content;
   if (!text) throw new Error("DeepSeek returned an empty response.");
   return { text, provider: "DeepSeek" };
-}
-
-async function requestGeminiText(prompt, options = {}) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  const apiResponse = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: options.temperature ?? 0.3,
-          ...(options.json ? { response_mime_type: "application/json" } : {}),
-        },
-      }),
-    }
-  );
-  if (!apiResponse.ok) {
-    const text = await apiResponse.text();
-    throw new Error(`Gemini failed (${apiResponse.status}): ${text.slice(0, 240)}`);
-  }
-  const payload = await apiResponse.json();
-  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned an empty response.");
-  return { text, provider: "Gemini" };
 }
 
 function serveDatabaseBackup(response) {

@@ -110,7 +110,7 @@ If you manually enter potassium or magnesium, the app uses the higher value betw
 
 The current app includes the full user flow for food photo analysis:
 
-- Upload a meal photo
+- Upload up to 6 meal photos and analyze them together in one Gemini request
 - Preview the image
 - Run analysis
 - Review identified foods
@@ -174,7 +174,7 @@ The chat is not Dr Eric Berg DC and does not replace your clinician. It can disc
 
 ## Nutrition feedback
 
-The Food Limits panel uses local rules first, then asks DeepSeek for more specific feedback, with Gemini as a fallback. Potassium and magnesium are minimum targets. Net carbs, carb:fiber ratio, and glycemic load are maximum limits. The AI prompt asks for South Africa-friendly food suggestions where possible. Gemini remains responsible for food-photo analysis because that endpoint requires image input.
+The Food Limits panel uses local rules first, then asks DeepSeek for more specific feedback. Potassium and magnesium are minimum targets. Net carbs, carb:fiber ratio, and glycemic load are maximum limits. The AI prompt asks for South Africa-friendly food suggestions where possible. Gemini is used only for food-photo analysis because that endpoint requires image input.
 
 ## Key safety
 

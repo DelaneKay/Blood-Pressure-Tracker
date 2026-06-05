@@ -251,16 +251,16 @@
               </div>
               <div class="food-photo-grid">
                 <label class="photo-picker">
-                  Add meal picture
-                  <input id="foodPhoto" name="foodPhoto" type="file" accept="image/*" />
+                  Add meal pictures
+                  <input id="foodPhoto" name="foodPhoto" type="file" accept="image/*" multiple />
                 </label>
-                <div id="foodPhotoPreview" class="photo-preview">No photo selected</div>
+                <div id="foodPhotoPreview" class="photo-preview">No photos selected</div>
               </div>
               <div class="photo-actions">
-                <button id="analyzePhotoBtn" class="ghost-button" type="button">Analyze photo</button>
+                <button id="analyzePhotoBtn" class="ghost-button" type="button">Analyze photos</button>
                 <button id="useIdentifiedFoodsBtn" class="ghost-button" type="button">Use confirmed foods</button>
               </div>
-              <p id="photoAnalysisStatus" class="mini-copy">Upload a food photo, then confirm the foods the AI identifies before saving.</p>
+              <p id="photoAnalysisStatus" class="mini-copy">Upload up to 6 meal photos. They will be analyzed together in one Gemini request.</p>
               <label>
                 Confirmed foods from photo
                 <input id="confirmedFoods" name="confirmedFoods" type="text" placeholder="e.g. avocado, eggs, spinach" />
@@ -485,6 +485,6 @@
       </div>
     </div>
 
-    <script src="./app.js?v=20260604-4"></script>
+    <script src="./app.js?v=20260605-1"></script>
   </body>
 </html>
