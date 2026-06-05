@@ -11,6 +11,7 @@ const PORT = Number(process.env.PORT || 5178);
 const HOST = process.env.HOST || "127.0.0.1";
 const DB_PATH = process.env.DB_PATH || path.join(ROOT, "health_tracker.db");
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
 const SUPABASE_URL = normalizeSupabaseUrl(process.env.SUPABASE_URL || "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
@@ -437,14 +438,6 @@ async function handleFoodPhotoAnalysis(request, response) {
 }
 
 async function handleLogsAnalysis(request, response) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey.includes("paste_your_new_key_here")) {
-    sendJson(response, 400, {
-      message: "Gemini API key is not configured. Add a new private key to .env first.",
-    });
-    return;
-  }
-
   const body = await readJsonBody(request);
   const logs = Array.isArray(body.logs) ? body.logs.slice(0, 90) : [];
   if (!logs.length) {
@@ -461,41 +454,15 @@ async function handleLogsAnalysis(request, response) {
     JSON.stringify(logs),
   ].join("\n");
 
-  const geminiResponse = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          response_mime_type: "application/json",
-        },
-      }),
-    }
-  );
-
-  if (!geminiResponse.ok) {
-    const text = await geminiResponse.text();
-    sendJson(response, 502, { message: `Gemini request failed: ${text.slice(0, 240)}` });
-    return;
+  try {
+    const result = await requestTextAi(prompt, { json: true, temperature: 0.2 });
+    sendJson(response, 200, safeJson(result.text));
+  } catch (error) {
+    sendJson(response, 502, { message: error.message });
   }
-
-  const payload = await geminiResponse.json();
-  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  sendJson(response, 200, safeJson(text));
 }
 
 async function handleNutritionAnalysis(request, response) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey.includes("paste_your_new_key_here")) {
-    sendJson(response, 400, {
-      message: "Gemini API key is not configured. Add a new private key to .env first.",
-    });
-    return;
-  }
-
   const body = await readJsonBody(request);
   const log = body.log || {};
   const checks = Array.isArray(body.checks) ? body.checks : [];
@@ -520,41 +487,15 @@ async function handleNutritionAnalysis(request, response) {
     JSON.stringify(checks),
   ].join("\n");
 
-  const geminiResponse = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.25,
-          response_mime_type: "application/json",
-        },
-      }),
-    }
-  );
-
-  if (!geminiResponse.ok) {
-    const text = await geminiResponse.text();
-    sendJson(response, 502, { message: `Gemini request failed: ${text.slice(0, 240)}` });
-    return;
+  try {
+    const result = await requestTextAi(prompt, { json: true, temperature: 0.25 });
+    sendJson(response, 200, safeJson(result.text));
+  } catch (error) {
+    sendJson(response, 502, { message: error.message });
   }
-
-  const payload = await geminiResponse.json();
-  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  sendJson(response, 200, safeJson(text));
 }
 
 async function handleChat(request, response) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey.includes("paste_your_new_key_here")) {
-    sendJson(response, 400, {
-      message: "Gemini API key is not configured. Add a new private key to .env first.",
-    });
-    return;
-  }
-
   const body = await readJsonBody(request);
   const question = String(body.question || "").trim();
   const history = Array.isArray(body.history) ? body.history.slice(-12) : [];
@@ -580,7 +521,64 @@ async function handleChat(request, response) {
     question,
   ].join("\n");
 
-  const geminiResponse = await fetch(
+  try {
+    const result = await requestTextAi(prompt, { temperature: 0.35 });
+    sendJson(response, 200, { answer: result.text, provider: result.provider });
+  } catch (error) {
+    sendJson(response, 502, { message: error.message });
+  }
+}
+
+async function requestTextAi(prompt, options = {}) {
+  const providers = [];
+  if (isConfiguredKey(process.env.DEEPSEEK_API_KEY)) providers.push(requestDeepSeek);
+  if (isConfiguredKey(process.env.GEMINI_API_KEY)) providers.push(requestGeminiText);
+  if (!providers.length) {
+    throw new Error("No text AI is configured. Add DEEPSEEK_API_KEY or GEMINI_API_KEY.");
+  }
+
+  const errors = [];
+  for (const provider of providers) {
+    try {
+      return await provider(prompt, options);
+    } catch (error) {
+      errors.push(error.message);
+    }
+  }
+  throw new Error(`AI request failed: ${errors.join(" | ")}`.slice(0, 500));
+}
+
+function isConfiguredKey(value) {
+  return Boolean(value && !value.includes("paste_") && !value.includes("your_"));
+}
+
+async function requestDeepSeek(prompt, options = {}) {
+  const apiResponse = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: options.temperature ?? 0.3,
+      ...(options.json ? { response_format: { type: "json_object" } } : {}),
+    }),
+  });
+  if (!apiResponse.ok) {
+    const text = await apiResponse.text();
+    throw new Error(`DeepSeek failed (${apiResponse.status}): ${text.slice(0, 240)}`);
+  }
+  const payload = await apiResponse.json();
+  const text = payload.choices?.[0]?.message?.content;
+  if (!text) throw new Error("DeepSeek returned an empty response.");
+  return { text, provider: "DeepSeek" };
+}
+
+async function requestGeminiText(prompt, options = {}) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const apiResponse = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
       method: "POST",
@@ -588,21 +586,20 @@ async function handleChat(request, response) {
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 0.35,
+          temperature: options.temperature ?? 0.3,
+          ...(options.json ? { response_mime_type: "application/json" } : {}),
         },
       }),
     }
   );
-
-  if (!geminiResponse.ok) {
-    const text = await geminiResponse.text();
-    sendJson(response, 502, { message: `Gemini request failed: ${text.slice(0, 240)}` });
-    return;
+  if (!apiResponse.ok) {
+    const text = await apiResponse.text();
+    throw new Error(`Gemini failed (${apiResponse.status}): ${text.slice(0, 240)}`);
   }
-
-  const payload = await geminiResponse.json();
-  const answer = payload.candidates?.[0]?.content?.parts?.[0]?.text || "I could not generate a response right now.";
-  sendJson(response, 200, { answer });
+  const payload = await apiResponse.json();
+  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned an empty response.");
+  return { text, provider: "Gemini" };
 }
 
 function serveDatabaseBackup(response) {

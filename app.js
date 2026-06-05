@@ -1728,7 +1728,7 @@ async function sendChatQuestion(question) {
     }
     const result = await response.json();
     addChatMessage("assistant", result.answer || "I could not answer that right now.");
-    chatStatusBadge.textContent = "Gemini";
+    chatStatusBadge.textContent = result.provider || "AI";
   } catch (error) {
     addChatMessage("assistant", `I could not reach the AI backend right now. ${error.message}`);
     chatStatusBadge.textContent = "Error";

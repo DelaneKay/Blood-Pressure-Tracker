@@ -35,6 +35,8 @@ NODE_ENV=production
 HOST=0.0.0.0
 GEMINI_API_KEY=your_private_key
 GEMINI_MODEL=gemini-2.5-flash
+DEEPSEEK_API_KEY=your_private_key
+DEEPSEEK_MODEL=deepseek-chat
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_private_service_role_key
 APP_USERNAME=your_username
@@ -172,7 +174,7 @@ The chat is not Dr Eric Berg DC and does not replace your clinician. It can disc
 
 ## Nutrition feedback
 
-The Food Limits panel uses local rules first, then asks Gemini for more specific feedback. Potassium and magnesium are minimum targets. Net carbs, carb:fiber ratio, and glycemic load are maximum limits. The AI prompt asks for South Africa-friendly food suggestions where possible.
+The Food Limits panel uses local rules first, then asks DeepSeek for more specific feedback, with Gemini as a fallback. Potassium and magnesium are minimum targets. Net carbs, carb:fiber ratio, and glycemic load are maximum limits. The AI prompt asks for South Africa-friendly food suggestions where possible. Gemini remains responsible for food-photo analysis because that endpoint requires image input.
 
 ## Key safety
 
