@@ -11,7 +11,7 @@ const PORT = Number(process.env.PORT || 5178);
 const HOST = process.env.HOST || "127.0.0.1";
 const DB_PATH = process.env.DB_PATH || path.join(ROOT, "health_tracker.db");
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openrouter/free";
 const SUPABASE_URL = normalizeSupabaseUrl(process.env.SUPABASE_URL || "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
@@ -532,38 +532,39 @@ async function handleChat(request, response) {
 }
 
 async function requestTextAi(prompt, options = {}) {
-  if (!isConfiguredKey(process.env.DEEPSEEK_API_KEY)) {
-    throw new Error("DeepSeek is not configured. Add DEEPSEEK_API_KEY.");
+  if (!isConfiguredKey(process.env.OPENROUTER_API_KEY)) {
+    throw new Error("OpenRouter is not configured. Add OPENROUTER_API_KEY.");
   }
-  return requestDeepSeek(prompt, options);
+  return requestOpenRouter(prompt, options);
 }
 
 function isConfiguredKey(value) {
   return Boolean(value && !value.includes("paste_") && !value.includes("your_"));
 }
 
-async function requestDeepSeek(prompt, options = {}) {
-  const apiResponse = await fetch("https://api.deepseek.com/chat/completions", {
+async function requestOpenRouter(prompt, options = {}) {
+  const apiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
       "Content-Type": "application/json",
+      "HTTP-Referer": process.env.APP_URL || "https://blood-pressure-tracker-7l43.onrender.com",
+      "X-Title": "Blood Pressure Health Tracker",
     },
     body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
+      model: OPENROUTER_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: options.temperature ?? 0.3,
-      ...(options.json ? { response_format: { type: "json_object" } } : {}),
     }),
   });
   if (!apiResponse.ok) {
     const text = await apiResponse.text();
-    throw new Error(`DeepSeek failed (${apiResponse.status}): ${text.slice(0, 240)}`);
+    throw new Error(`OpenRouter failed (${apiResponse.status}): ${text.slice(0, 240)}`);
   }
   const payload = await apiResponse.json();
   const text = payload.choices?.[0]?.message?.content;
-  if (!text) throw new Error("DeepSeek returned an empty response.");
-  return { text, provider: "DeepSeek" };
+  if (!text) throw new Error("OpenRouter returned an empty response.");
+  return { text, provider: "OpenRouter" };
 }
 
 function serveDatabaseBackup(response) {
@@ -650,11 +651,26 @@ function sendJson(response, status, payload) {
 }
 
 function safeJson(text) {
+  const value = String(text || "").trim();
   try {
-    return JSON.parse(text);
-  } catch {
-    return {};
+    return JSON.parse(value);
+  } catch {}
+
+  const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  if (fenced) {
+    try {
+      return JSON.parse(fenced.trim());
+    } catch {}
   }
+
+  const start = value.indexOf("{");
+  const end = value.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(value.slice(start, end + 1));
+    } catch {}
+  }
+  return {};
 }
 
 function loadEnv(filePath) {
