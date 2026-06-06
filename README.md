@@ -35,8 +35,6 @@ NODE_ENV=production
 HOST=0.0.0.0
 GEMINI_API_KEY=your_private_key
 GEMINI_MODEL=gemini-2.5-flash
-OPENROUTER_API_KEY=your_private_key
-OPENROUTER_MODEL=openrouter/free
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_private_service_role_key
 APP_USERNAME=your_username
@@ -174,7 +172,7 @@ The chat is not Dr Eric Berg DC and does not replace your clinician. It can disc
 
 ## Nutrition feedback
 
-The Food Limits panel uses local rules first, then asks OpenRouter's free model router for more specific feedback. Potassium and magnesium are minimum targets. Net carbs, carb:fiber ratio, and glycemic load are maximum limits. The AI prompt asks for South Africa-friendly food suggestions where possible. Gemini is used only for food-photo analysis because that endpoint requires image input.
+The Food Limits panel uses local rules first, then asks Gemini for more specific feedback. Potassium and magnesium are minimum targets. Net carbs, carb:fiber ratio, and glycemic load are maximum limits. The AI prompt asks for South Africa-friendly food suggestions where possible. Gemini also handles combined food-photo analysis.
 
 ## Key safety
 

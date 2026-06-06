@@ -14,10 +14,6 @@ services:
         value: gemini-2.5-flash
       - key: GEMINI_API_KEY
         sync: false
-      - key: OPENROUTER_MODEL
-        value: openrouter/free
-      - key: OPENROUTER_API_KEY
-        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

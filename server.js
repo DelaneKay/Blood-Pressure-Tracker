@@ -11,7 +11,6 @@ const PORT = Number(process.env.PORT || 5178);
 const HOST = process.env.HOST || "127.0.0.1";
 const DB_PATH = process.env.DB_PATH || path.join(ROOT, "health_tracker.db");
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openrouter/free";
 const SUPABASE_URL = normalizeSupabaseUrl(process.env.SUPABASE_URL || "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
@@ -532,39 +531,39 @@ async function handleChat(request, response) {
 }
 
 async function requestTextAi(prompt, options = {}) {
-  if (!isConfiguredKey(process.env.OPENROUTER_API_KEY)) {
-    throw new Error("OpenRouter is not configured. Add OPENROUTER_API_KEY.");
+  if (!isConfiguredKey(process.env.GEMINI_API_KEY)) {
+    throw new Error("Gemini is not configured. Add GEMINI_API_KEY.");
   }
-  return requestOpenRouter(prompt, options);
+  return requestGeminiText(prompt, options);
 }
 
 function isConfiguredKey(value) {
   return Boolean(value && !value.includes("paste_") && !value.includes("your_"));
 }
 
-async function requestOpenRouter(prompt, options = {}) {
-  const apiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": process.env.APP_URL || "https://blood-pressure-tracker-7l43.onrender.com",
-      "X-Title": "Blood Pressure Health Tracker",
-    },
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      temperature: options.temperature ?? 0.3,
-    }),
-  });
+async function requestGeminiText(prompt, options = {}) {
+  const apiResponse = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: options.temperature ?? 0.3,
+          ...(options.json ? { response_mime_type: "application/json" } : {}),
+        },
+      }),
+    }
+  );
   if (!apiResponse.ok) {
     const text = await apiResponse.text();
-    throw new Error(`OpenRouter failed (${apiResponse.status}): ${text.slice(0, 240)}`);
+    throw new Error(`Gemini failed (${apiResponse.status}): ${text.slice(0, 240)}`);
   }
   const payload = await apiResponse.json();
-  const text = payload.choices?.[0]?.message?.content;
-  if (!text) throw new Error("OpenRouter returned an empty response.");
-  return { text, provider: "OpenRouter" };
+  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned an empty response.");
+  return { text, provider: "Gemini" };
 }
 
 function serveDatabaseBackup(response) {
