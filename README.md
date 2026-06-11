@@ -174,6 +174,9 @@ The chat is not Dr Eric Berg DC and does not replace your clinician. It can disc
 
 The Food Limits panel uses local rules first, then asks Gemini for more specific feedback. Potassium and magnesium are minimum targets. Net carbs, carb:fiber ratio, and glycemic load are maximum limits. The AI prompt asks for South Africa-friendly food suggestions where possible. Gemini also handles combined food-photo analysis.
 
+Food estimates support counts and weights in typed entries, including examples such as `1 banana`, `9 dried apricots`, and `300 g yoghurt`. Saved logs are recalculated from the latest local food reference values when displayed, so database corrections also update older entries.
+When Gemini identifies a visible portion in a meal photo, that quantity is retained in the confirmed food text and used by the same count/weight calculation.
+
 ## Key safety
 
 `.gitignore` excludes `.env`, `health_tracker.db`, backup database files, uploads, and logs. Keep your Gemini API key in `.env` only.

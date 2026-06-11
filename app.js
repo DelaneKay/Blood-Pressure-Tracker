@@ -107,6 +107,10 @@ const foodDailyLimits = {
 
 const foodDatabase = [
   { key: "avocado", label: "Avocado", potassium: 700, magnesium: 40, carbs: 12, fiber: 10, netCarbs: 2, glycemicLoad: 1, helpful: true },
+  { key: "banana", label: "Banana", aliases: ["bananas"], servingLabel: "1 medium", potassium: 422, magnesium: 32, carbs: 27, fiber: 3.1, netCarbs: 23.9, glycemicLoad: 12, caution: true },
+  { key: "dried apricot", label: "Dried apricot", aliases: ["dried apricots", "dried apricot halves"], servingLabel: "1 piece", potassium: 50, magnesium: 2, carbs: 4.5, fiber: 0.7, netCarbs: 3.8, glycemicLoad: 1, caution: true },
+  { key: "apricot", label: "Fresh apricot", aliases: ["apricots", "fresh apricot", "fresh apricots"], servingLabel: "1 fruit", potassium: 91, magnesium: 4, carbs: 3.9, fiber: 0.7, netCarbs: 3.2, glycemicLoad: 1, helpful: true },
+  { key: "yogurt", label: "Plain yoghurt", aliases: ["yoghurt", "plain yogurt", "plain yoghurt", "greek yogurt", "greek yoghurt", "maas"], servingLabel: "100 g", servingGrams: 100, potassium: 155, magnesium: 17, carbs: 4.7, fiber: 0, netCarbs: 4.7, glycemicLoad: 1, helpful: true },
   { key: "spinach", label: "Spinach", potassium: 840, magnesium: 80, carbs: 7, fiber: 4, netCarbs: 3, glycemicLoad: 1, helpful: true },
   { key: "swiss chard", label: "Swiss chard", potassium: 1000, magnesium: 150, carbs: 7, fiber: 4, netCarbs: 3, glycemicLoad: 1, helpful: true },
   { key: "chard", label: "Chard", potassium: 1000, magnesium: 150, carbs: 7, fiber: 4, netCarbs: 3, glycemicLoad: 1, helpful: true },
@@ -326,10 +330,11 @@ async function replaceLogs(logs) {
 }
 
 function populateFoodOptions() {
-  const helpful = foodDatabase
-    .filter((item) => item.helpful)
+  const foods = foodDatabase
     .sort((a, b) => a.label.localeCompare(b.label));
-  portionFood.innerHTML = helpful.map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`).join("");
+  portionFood.innerHTML = foods
+    .map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}${item.servingLabel ? ` (${escapeHtml(item.servingLabel)})` : ""}</option>`)
+    .join("");
 }
 
 function getSastNowParts(date = new Date()) {
@@ -485,13 +490,11 @@ function estimateFoodNutrition(food, portions = []) {
     if (matches.some((match) => match.key === item.key && match.fromPortion)) return;
     if (item.key === "egg" && normalized.includes("eggs")) return;
     if (item.key === "chard" && normalized.includes("swiss chard")) return;
-    const phrase = item.key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll(" ", "\\s+");
-    const phrasePattern = new RegExp(`\\b${phrase}\\b`);
-    if (!phrasePattern.test(normalized)) return;
-    const countPattern = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(?:x\\s*)?${phrase}\\b`);
-    const countMatch = normalized.match(countPattern);
-    const servings = countMatch ? Number(countMatch[1]) : 1;
-    matches.push({ ...item, servings });
+    if (item.key === "apricot" && /\bdried\s+apricots?\b/.test(normalized)) return;
+    const terms = [item.key, ...(item.aliases || [])].sort((a, b) => b.length - a.length);
+    const matchedTerm = terms.find((term) => new RegExp(`\\b${escapeRegExp(term).replaceAll(" ", "\\s+")}\\b`).test(normalized));
+    if (!matchedTerm) return;
+    matches.push({ ...item, servings: getFoodServings(normalized, matchedTerm, item) });
   });
 
   const totals = matches.reduce(
@@ -512,6 +515,29 @@ function estimateFoodNutrition(food, portions = []) {
   return totals;
 }
 
+function getFoodServings(text, term, item) {
+  const phrase = escapeRegExp(term).replaceAll(" ", "\\s+");
+  const before = text.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(kg|g|grams?|ml)?\\s*(?:of\\s+)?${phrase}\\b`));
+  const after = text.match(new RegExp(`\\b${phrase}\\s*[-:,]?\\s*(\\d+(?:\\.\\d+)?)\\s*(kg|g|grams?|ml)\\b`));
+  const match = before || after;
+  if (!match) return 1;
+
+  const amount = Number(match[1]);
+  const unit = String(match[2] || "").toLowerCase();
+  if (!Number.isFinite(amount) || amount <= 0) return 1;
+  if (!unit) return amount;
+
+  const grams = unit === "kg" ? amount * 1000 : amount;
+  if ((unit === "g" || unit.startsWith("gram") || unit === "kg" || unit === "ml") && item.servingGrams) {
+    return grams / item.servingGrams;
+  }
+  return 1;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function latestBloodPressureLog(logs) {
   return [...logs].filter(hasBloodPressure).sort((a, b) => logSortValue(b).localeCompare(logSortValue(a)))[0] || null;
 }
@@ -521,12 +547,15 @@ function getLogsForDate(logs, date) {
 }
 
 function sumNutrition(logs) {
-  const matches = logs.flatMap((log) => log.estimatedNutrition?.matches || []);
-  const totals = logs.reduce(
-    (sum, log) => {
-      const nutrition = log.estimatedNutrition || {};
-      sum.potassium += Number(log.potassium) || Number(nutrition.potassium) || 0;
-      sum.magnesium += Number(log.magnesium) || Number(nutrition.magnesium) || 0;
+  const recalculated = logs.map((log) => ({
+    log,
+    nutrition: estimateFoodNutrition(log.food || "", log.portionEntries || []),
+  }));
+  const matches = recalculated.flatMap(({ nutrition }) => nutrition.matches || []);
+  const totals = recalculated.reduce(
+    (sum, { log, nutrition }) => {
+      sum.potassium += Math.max(Number(log.manualPotassium) || 0, Number(nutrition.potassium) || 0, Number(log.potassium) || 0);
+      sum.magnesium += Math.max(Number(log.manualMagnesium) || 0, Number(nutrition.magnesium) || 0, Number(log.magnesium) || 0);
       sum.carbs += Number(nutrition.carbs) || 0;
       sum.fiber += Number(nutrition.fiber) || 0;
       sum.netCarbs += Number(nutrition.netCarbs) || 0;
@@ -668,7 +697,7 @@ function formatExerciseName(value) {
 }
 
 function getNutritionChecksForLog(log) {
-  const nutrition = log.estimatedNutrition || estimateFoodNutrition(log.food || "");
+  const nutrition = estimateFoodNutrition(log.food || "", log.portionEntries || []);
   const combined = {
     ...nutrition,
     potassium: Math.max(Number(log.manualPotassium) || 0, nutrition.potassium || Number(log.potassium) || 0),
@@ -714,9 +743,10 @@ function renderPortions() {
         .map((entry, index) => {
           const item = foodDatabase.find((foodItem) => foodItem.key === entry.key);
           const label = item?.label || entry.key;
+          const servingText = item?.servingLabel ? ` x ${item.servingLabel}` : " serving(s)";
           return `
             <div class="portion-row">
-              <span><strong>${escapeHtml(label)}</strong><br>${formatNumber(Number(entry.servings) || 1)} serving(s)</span>
+              <span><strong>${escapeHtml(label)}</strong><br>${formatNumber(Number(entry.servings) || 1)}${escapeHtml(servingText)}</span>
               <button type="button" data-index="${index}">Remove</button>
             </div>
           `;
@@ -974,7 +1004,7 @@ function getWeightTrendText(log, logs) {
 }
 
 function renderNutrition(log) {
-  const nutrition = log.estimatedNutrition || estimateFoodNutrition(log.food);
+  const nutrition = estimateFoodNutrition(log.food || "", log.portionEntries || []);
   const combined = {
     ...nutrition,
     potassium: Math.max(Number(log.manualPotassium) || 0, nutrition.potassium || Number(log.potassium) || 0),
@@ -1265,13 +1295,14 @@ function buildActivityDetailHtml(item, log) {
 }
 
 function buildMealDetailHtml(log) {
+  const recalculatedNutrition = estimateFoodNutrition(log.food || "", log.portionEntries || []);
   const portions = (log.portionEntries || [])
     .map((entry) => {
       const food = foodDatabase.find((item) => item.key === entry.key);
       return `${formatNumber(Number(entry.servings) || 1)} serving(s) ${food?.label || entry.key}`;
     })
     .join(", ");
-  const matches = (log.estimatedNutrition?.matches || []).map((item) => item.label).join(", ");
+  const matches = (recalculatedNutrition.matches || []).map((item) => item.label).join(", ");
   return [
     renderDetailRows([
       { label: "Food entered", value: log.food || log.confirmedFoods || "-" },
@@ -1582,7 +1613,7 @@ async function analyzeFoodPhoto() {
 
     const result = await response.json();
     const foods = Array.isArray(result.foods) ? result.foods : [];
-    renderIdentifiedFoods(foods.map((item) => item.name || item).filter(Boolean));
+    renderIdentifiedFoods(foods.map(formatIdentifiedFood).filter(Boolean));
     photoAnalysisStatus.textContent = foods.length
       ? `Gemini analyzed ${files.length} photo${files.length === 1 ? "" : "s"} together. Confirm the combined food list before saving.`
       : "AI did not identify foods clearly. Type the foods manually.";
@@ -1591,6 +1622,20 @@ async function analyzeFoodPhoto() {
     photoAnalysisStatus.textContent = `AI backend is not ready: ${error.message}`;
     photoAiBadge.textContent = "Backend error";
   }
+}
+
+function formatIdentifiedFood(item) {
+  if (typeof item === "string") return item;
+  const name = String(item?.name || "").trim();
+  const portion = String(item?.portion || "").trim();
+  if (!name) return "";
+  if (!portion) return name;
+
+  const measured = portion.match(/(\d+(?:\.\d+)?)\s*(kg|g|grams?|ml)\b/i);
+  if (measured) return `${measured[1]} ${measured[2]} ${name}`;
+  const counted = portion.match(/(\d+(?:\.\d+)?)/);
+  if (counted) return `${counted[1]} ${name}`;
+  return name;
 }
 
 function compressImageForAnalysis(file) {
